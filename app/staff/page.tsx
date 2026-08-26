@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
-import { LogOut, QrCode, FileSpreadsheet, Activity, Search } from "lucide-react";
+import { LogOut, QrCode, FileSpreadsheet, Activity, Search, Download } from "lucide-react";
 import QRScanner from "../../components/QRScanner";
 
 export default function StaffDashboard() {
   const [cargando, setCargando] = useState(true);
+  const [descargando, setDescargando] = useState(false);
   const [usuarioActivo, setUsuarioActivo] = useState<string | null>(null);
   const [vistaActiva, setVistaActiva] = useState<"dashboard" | "scanner">("dashboard");
   const router = useRouter();
@@ -30,6 +31,30 @@ export default function StaffDashboard() {
   const cerrarSesion = async () => {
     await supabase.auth.signOut();
     router.replace("/login");
+  };
+
+  const descargarExcel = async () => {
+    try {
+      setDescargando(true);
+      const response = await fetch("/api/exportar");
+      
+      if (!response.ok) throw new Error("Error al generar el archivo");
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Evaluaciones_ACOFI.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      alert("Hubo un problema descargando el Excel. Por favor, intenta de nuevo.");
+      console.error(error);
+    } finally {
+      setDescargando(false);
+    }
   };
 
   if (cargando) {
@@ -103,16 +128,27 @@ export default function StaffDashboard() {
               </button>
             </div>
 
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center opacity-70 cursor-not-allowed">
-              <div className="bg-gray-100 p-4 rounded-full mb-4">
-                <FileSpreadsheet className="w-10 h-10 text-gray-500" />
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
+              <div className="bg-purple-100 p-4 rounded-full mb-4">
+                <FileSpreadsheet className="w-10 h-10 text-[#311b42]" />
               </div>
               <h3 className="text-lg font-bold text-gray-800 mb-2">Consolidado Excel</h3>
               <p className="text-gray-500 text-sm mb-6">
-                Descarga los resultados de las evaluaciones con fórmulas y ponderaciones (Módulo final).
+                Descarga los resultados con las fórmulas matemáticas y ponderaciones calculadas.
               </p>
-              <button disabled className="w-full bg-gray-300 text-gray-500 font-bold py-3 px-4 rounded-xl cursor-not-allowed">
-                En desarrollo
+              <button 
+                onClick={descargarExcel}
+                disabled={descargando}
+                className="w-full bg-[#311b42] hover:bg-purple-950 text-white font-bold py-3 px-4 rounded-xl transition-colors shadow-md disabled:opacity-70 flex items-center justify-center space-x-2"
+              >
+                {descargando ? (
+                   <span className="animate-pulse">Generando reporte...</span>
+                ) : (
+                  <>
+                    <Download className="w-5 h-5" />
+                    <span>Descargar .xlsx</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
