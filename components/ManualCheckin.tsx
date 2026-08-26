@@ -5,32 +5,36 @@ import { supabase } from "../lib/supabase";
 import { Search, UserCheck, AlertCircle, CheckCircle } from "lucide-react";
 
 export default function ManualCheckin() {
-  const [correoBusqueda, setCorreoBusqueda] = useState("");
+  const [terminoBusqueda, setTerminoBusqueda] = useState("");
   const [buscando, setBuscando] = useState(false);
-  const [registrando, setRegistrando] = useState(false);
-  const [resultadoBusqueda, setResultadoBusqueda] = useState<any | null>(null);
+  const [registrandoId, setRegistrandoId] = useState<string | null>(null);
+  const [resultados, setResultados] = useState<any[]>([]);
   const [mensaje, setMensaje] = useState<{ tipo: "error" | "exito"; texto: string } | null>(null);
 
   const buscarParticipante = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!terminoBusqueda.trim()) return;
+    
     setBuscando(true);
     setMensaje(null);
-    setResultadoBusqueda(null);
+    setResultados([]);
 
-    const correoLimpio = correoBusqueda.trim().toLowerCase();
+    const termino = terminoBusqueda.trim();
 
     try {
+      // Búsqueda global por cualquier campo usando ilike (insensible a mayúsculas)
       const { data, error } = await supabase
         .from("base_datos_participantes")
         .select("*")
-        .eq("correo", correoLimpio)
-        .single();
+        .or(`correo.ilike.%${termino}%,nombre.ilike.%${termino}%,apellido.ilike.%${termino}%,numero_documento.ilike.%${termino}%`)
+        .limit(10); // Limitamos a 10 para no saturar la pantalla
 
-      if (error || !data) {
-        throw new Error("No se encontró ningún participante con ese correo.");
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        throw new Error("No se encontró ningún participante con esos datos.");
       }
 
-      setResultadoBusqueda(data);
+      setResultados(data);
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: error.message });
     } finally {
@@ -38,45 +42,43 @@ export default function ManualCheckin() {
     }
   };
 
-  const registrarIngreso = async () => {
-    if (!resultadoBusqueda) return;
-    
-    setRegistrando(true);
+  const registrarIngreso = async (participante: any) => {
+    setRegistrandoId(participante.correo);
     setMensaje(null);
     const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 
     try {
-      // Verificar si ya ingresó hoy
       const { data: checkinPrevio } = await supabase
         .from("check_ins")
         .select("id")
-        .eq("correo_usuario", resultadoBusqueda.correo)
+        .eq("correo_usuario", participante.correo)
         .eq("dia_evento", todayStr)
         .single();
 
       if (checkinPrevio) {
-        throw new Error("El participante ya tiene un registro de ingreso para el día de hoy.");
+        throw new Error(`El participante ${participante.nombre} ya tiene un registro de ingreso hoy.`);
       }
 
-      // Registrar
       const { error: errInsert } = await supabase
         .from("check_ins")
         .insert([{ 
-          correo_usuario: resultadoBusqueda.correo, 
+          correo_usuario: participante.correo, 
           dia_evento: todayStr, 
           estado: "ingresó" 
         }]);
 
       if (errInsert) throw errInsert;
 
-      setMensaje({ tipo: "exito", texto: "Ingreso registrado correctamente." });
-      setResultadoBusqueda(null);
-      setCorreoBusqueda("");
+      setMensaje({ tipo: "exito", texto: `Ingreso registrado correctamente para ${participante.nombre} ${participante.apellido}.` });
+      
+      // Limpiar la lista para el siguiente
+      setResultados(resultados.filter(r => r.correo !== participante.correo));
+      if (resultados.length === 1) setTerminoBusqueda("");
 
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: error.message });
     } finally {
-      setRegistrando(false);
+      setRegistrandoId(null);
     }
   };
 
@@ -88,10 +90,10 @@ export default function ManualCheckin() {
             <Search className="w-5 h-5" />
           </div>
           <input
-            type="email"
-            value={correoBusqueda}
-            onChange={(e) => setCorreoBusqueda(e.target.value)}
-            placeholder="Buscar por correo electrónico..."
+            type="text"
+            value={terminoBusqueda}
+            onChange={(e) => setTerminoBusqueda(e.target.value)}
+            placeholder="Buscar por nombre, correo o documento..."
             className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-[#311b42] outline-none text-gray-700"
             required
           />
@@ -105,37 +107,41 @@ export default function ManualCheckin() {
         </button>
       </form>
 
-      {/* Alertas */}
       {mensaje && (
         <div className={`p-4 rounded-xl mb-6 flex items-center space-x-2 ${
           mensaje.tipo === "error" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
         }`}>
-          {mensaje.tipo === "error" ? <AlertCircle className="w-5 h-5" /> : <CheckCircle className="w-5 h-5" />}
+          {mensaje.tipo === "error" ? <AlertCircle className="w-5 h-5 shrink-0" /> : <CheckCircle className="w-5 h-5 shrink-0" />}
           <span className="font-bold text-sm">{mensaje.texto}</span>
         </div>
       )}
 
-      {/* Tarjeta de Resultado */}
-      {resultadoBusqueda && (
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 flex flex-col md:flex-row justify-between items-center">
-          <div className="mb-4 md:mb-0 text-center md:text-left">
-            <h3 className="text-xl font-bold text-gray-800">
-              {resultadoBusqueda.nombre} {resultadoBusqueda.apellido}
-            </h3>
-            <p className="text-gray-500 text-sm">{resultadoBusqueda.correo}</p>
-            <div className="mt-2 inline-block bg-[#c81474] text-white text-xs font-bold px-3 py-1 rounded-full">
-              {resultadoBusqueda.rol || "Participante"}
+      {/* Lista de Resultados */}
+      {resultados.length > 0 && (
+        <div className="space-y-4">
+          <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wide">Resultados de la búsqueda:</h4>
+          {resultados.map((res) => (
+            <div key={res.correo} className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col md:flex-row justify-between items-center hover:border-[#c81474] transition-colors">
+              <div className="mb-4 md:mb-0 text-center md:text-left w-full md:w-auto">
+                <h3 className="text-lg font-bold text-gray-800">
+                  {res.nombre} {res.apellido}
+                </h3>
+                <p className="text-gray-500 text-sm">{res.correo} {res.numero_documento ? `| Doc: ${res.numero_documento}` : ""}</p>
+                <div className="mt-2 inline-block bg-[#c81474] text-white text-xs font-bold px-3 py-1 rounded-full">
+                  {res.rol || "Participante"}
+                </div>
+              </div>
+              
+              <button
+                onClick={() => registrarIngreso(res)}
+                disabled={registrandoId === res.correo}
+                className="w-full md:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-2 disabled:opacity-70"
+              >
+                <UserCheck className="w-5 h-5" />
+                <span>{registrandoId === res.correo ? "Cargando..." : "Dar Ingreso"}</span>
+              </button>
             </div>
-          </div>
-          
-          <button
-            onClick={registrarIngreso}
-            disabled={registrando}
-            className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-xl transition-colors shadow-md flex items-center space-x-2 disabled:opacity-70"
-          >
-            <UserCheck className="w-5 h-5" />
-            <span>{registrando ? "Registrando..." : "Confirmar Ingreso"}</span>
-          </button>
+          ))}
         </div>
       )}
     </div>

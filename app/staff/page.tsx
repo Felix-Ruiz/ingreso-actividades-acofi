@@ -3,16 +3,17 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
-import { LogOut, QrCode, FileSpreadsheet, Activity, Download, Keyboard, Database } from "lucide-react";
+import { LogOut, QrCode, FileSpreadsheet, Activity, Download, Keyboard, Database, TableProperties } from "lucide-react";
 import QRScanner from "../../components/QRScanner";
 import ManualCheckin from "../../components/ManualCheckin";
 import DataUploader from "../../components/DataUploader";
+import DatabaseManager from "../../components/DatabaseManager";
 
 export default function StaffDashboard() {
   const [cargando, setCargando] = useState(true);
   const [descargando, setDescargando] = useState(false);
   const [usuarioActivo, setUsuarioActivo] = useState<string | null>(null);
-  const [vistaActiva, setVistaActiva] = useState<"dashboard" | "scanner" | "manual" | "datos">("dashboard");
+  const [vistaActiva, setVistaActiva] = useState<"dashboard" | "scanner" | "manual" | "datos" | "registros">("dashboard");
   const router = useRouter();
 
   useEffect(() => {
@@ -88,42 +89,26 @@ export default function StaffDashboard() {
       </nav>
 
       {/* Contenido Principal */}
-      <main className="max-w-4xl mx-auto p-4 sm:p-6 mt-4">
+      <main className="max-w-5xl mx-auto p-4 sm:p-6 mt-4">
         
         {/* Navegación interna */}
         <div className="flex flex-wrap gap-2 mb-6">
-          <button 
-            onClick={() => setVistaActiva("dashboard")}
-            className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
-              vistaActiva === "dashboard" ? "bg-white text-[#311b42] shadow-sm border border-gray-200" : "text-gray-500 hover:bg-gray-200"
-            }`}
-          >
+          <button onClick={() => setVistaActiva("dashboard")} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${vistaActiva === "dashboard" ? "bg-white text-[#311b42] shadow-sm border border-gray-200" : "text-gray-500 hover:bg-gray-200"}`}>
             Panel Principal
           </button>
-          <button 
-            onClick={() => setVistaActiva("datos")}
-            className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
-              vistaActiva === "datos" ? "bg-blue-600 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-            }`}
-          >
-            <Database className="w-4 h-4" />
-            <span>Carga de Datos</span>
+          <button onClick={() => setVistaActiva("registros")} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${vistaActiva === "registros" ? "bg-emerald-600 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}>
+            <TableProperties className="w-4 h-4" />
+            <span>Ver Registros</span>
           </button>
-          <button 
-            onClick={() => setVistaActiva("scanner")}
-            className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
-              vistaActiva === "scanner" ? "bg-[#c81474] text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-            }`}
-          >
+          <button onClick={() => setVistaActiva("datos")} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${vistaActiva === "datos" ? "bg-blue-600 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}>
+            <Database className="w-4 h-4" />
+            <span>Cargar Excels</span>
+          </button>
+          <button onClick={() => setVistaActiva("scanner")} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${vistaActiva === "scanner" ? "bg-[#c81474] text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}>
             <QrCode className="w-4 h-4" />
             <span>Lector QR</span>
           </button>
-          <button 
-            onClick={() => setVistaActiva("manual")}
-            className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
-              vistaActiva === "manual" ? "bg-[#c81474] text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-            }`}
-          >
+          <button onClick={() => setVistaActiva("manual")} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${vistaActiva === "manual" ? "bg-[#c81474] text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}>
             <Keyboard className="w-4 h-4" />
             <span>Registro Manual</span>
           </button>
@@ -182,6 +167,17 @@ export default function StaffDashboard() {
           </div>
         )}
 
+        {/* Vista: VER REGISTROS (CRUD) */}
+        {vistaActiva === "registros" && (
+          <div>
+            <h2 className="text-2xl font-extrabold text-gray-800 mb-4">Gestor de Base de Datos</h2>
+            <p className="text-gray-600 mb-6 text-sm">
+              Visualiza y edita rápidamente la información de los participantes y el cronograma de ponencias.
+            </p>
+            <DatabaseManager />
+          </div>
+        )}
+
         {/* Vista: CARGA DE DATOS */}
         {vistaActiva === "datos" && (
           <div>
@@ -209,7 +205,7 @@ export default function StaffDashboard() {
           <div>
             <h2 className="text-2xl font-extrabold text-gray-800 mb-4">Búsqueda Manual</h2>
             <p className="text-gray-600 mb-6 text-sm">
-              Busca a un participante por su correo electrónico registrado para confirmar su asistencia de forma manual.
+              Busca a un participante por nombre, documento o correo para confirmar su asistencia.
             </p>
             <ManualCheckin />
           </div>

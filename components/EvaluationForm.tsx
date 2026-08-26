@@ -59,21 +59,24 @@ export default function EvaluationForm() {
     try {
       const { data: usuario, error: errUsuario } = await supabase
         .from("base_datos_participantes")
-        .select("nombre")
+        .select("nombre, rol")
         .eq("correo", correoLimpio)
         .single();
 
       if (!usuario || errUsuario) throw new Error(t.uNotExist);
 
-      const { data: checkin } = await supabase
-        .from("check_ins")
-        .select("id")
-        .eq("correo_usuario", correoLimpio)
-        .eq("dia_evento", todayStr)
-        .eq("estado", "ingresó")
-        .single();
+      // Si el rol NO es Moderador, exigimos el check-in diario
+      if (usuario.rol !== "Moderador") {
+        const { data: checkin } = await supabase
+          .from("check_ins")
+          .select("id")
+          .eq("correo_usuario", correoLimpio)
+          .eq("dia_evento", todayStr)
+          .eq("estado", "ingresó")
+          .single();
 
-      if (!checkin) throw new Error(t.noCheckin);
+        if (!checkin) throw new Error(t.noCheckin);
+      }
 
       const { data: ponencia, error: errPonencia } = await supabase
         .from("ponencias")
@@ -145,7 +148,7 @@ export default function EvaluationForm() {
         <img src="/logo.png" alt="Logo Evento" className="w-16 h-16 object-contain" />
       </div>
 
-      {/* Título - Restablecido para que se vea correctamente */}
+      {/* Título */}
       <h1 className="text-3xl font-extrabold text-[#c81474] mb-6 text-center drop-shadow-sm">
         {t.title}
       </h1>

@@ -40,7 +40,6 @@ export default function DataUploader() {
         else if (headerName === "NÚMERO DE DOCUMENTO") headerMap.documento = colNumber;
       });
 
-      // Validar columnas estrictamente necesarias
       if (!headerMap.correo || !headerMap.nombre || !headerMap.apellido) {
         throw new Error("El archivo no contiene las columnas obligatorias exactas: CORREO ELECTRÓNICO, NOMBRE, APELLIDOS.");
       }
@@ -53,7 +52,6 @@ export default function DataUploader() {
         const nombre = row.getCell(headerMap.nombre).text?.trim();
         const apellido = row.getCell(headerMap.apellido).text?.trim();
         
-        // Campos opcionales (dependen de si la columna existe en el excel)
         const rol = headerMap.rol ? (row.getCell(headerMap.rol).text?.trim() || "Participante") : "Participante";
         const telefono = headerMap.telefono ? row.getCell(headerMap.telefono).text?.trim() : null;
         const documento = headerMap.documento ? row.getCell(headerMap.documento).text?.trim() : null;
@@ -99,24 +97,37 @@ export default function DataUploader() {
       const worksheet = workbook.worksheets[0];
 
       const ponencias: any[] = [];
+      const headerMap: { [key: string]: number } = {};
+
+      // Mapeo Inteligente para Ponencias
+      const headerRow = worksheet.getRow(1);
+      headerRow.eachCell((cell, colNumber) => {
+        const headerName = cell.text?.trim().toUpperCase();
+        if (headerName === "ID ENVÍO" || headerName === "ID ENVIO") headerMap.codigo = colNumber;
+        else if (headerName === "TÍTULO" || headerName === "TITULO") headerMap.nombre = colNumber;
+        else if (headerName === "FECHA") headerMap.fecha = colNumber;
+      });
+
+      if (!headerMap.codigo || !headerMap.nombre || !headerMap.fecha) {
+        throw new Error("El archivo debe contener las columnas: ID envío, Título, Fecha.");
+      }
 
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return;
 
-        const codigo = row.getCell(1).text?.trim();
-        const nombre = row.getCell(2).text?.trim();
-        let fecha = row.getCell(3).value;
+        const codigo = row.getCell(headerMap.codigo).text?.trim();
+        const nombre = row.getCell(headerMap.nombre).text?.trim();
+        const celdaFecha = row.getCell(headerMap.fecha).value;
 
-        // Formatear fecha a YYYY-MM-DD
         let fechaStr = "";
-        if (fecha instanceof Date) {
-          fechaStr = fecha.toISOString().split("T")[0];
-        } else if (typeof fecha === "string") {
-          const partes = fecha.split("/");
+        if (celdaFecha instanceof Date) {
+          fechaStr = celdaFecha.toISOString().split("T")[0];
+        } else if (typeof celdaFecha === "string") {
+          const partes = celdaFecha.split("/");
           if (partes.length === 3) {
-            fechaStr = new Date(fecha).toISOString().split("T")[0];
+            fechaStr = `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
           } else {
-            fechaStr = fecha;
+            fechaStr = celdaFecha;
           }
         }
 
@@ -125,14 +136,14 @@ export default function DataUploader() {
         }
       });
 
-      if (ponencias.length === 0) throw new Error("No se encontraron ponencias válidas. Verifica las columnas.");
+      if (ponencias.length === 0) throw new Error("No se encontraron ponencias válidas.");
 
       const { error } = await supabase.from("ponencias").upsert(ponencias);
       if (error) throw error;
 
-      setMensaje({ tipo: "exito", texto: `Se cargaron/actualizaron ${ponencias.length} ponencias con éxito.` });
+      setMensaje({ tipo: "exito", texto: `Se procesaron inteligentemente ${ponencias.length} ponencias.` });
     } catch (error: any) {
-      setMensaje({ tipo: "error", texto: `Error procesando el archivo: ${error.message}` });
+      setMensaje({ tipo: "error", texto: `Error: ${error.message}` });
     } finally {
       setCargando(null);
       if (fileInputPonencias.current) fileInputPonencias.current.value = "";
@@ -194,8 +205,8 @@ export default function DataUploader() {
           </div>
           <h3 className="text-lg font-bold text-gray-800 mb-2">Cronograma de Ponencias</h3>
           <p className="text-gray-500 text-xs mb-4">
-            Columnas esperadas (sin importar nombre, en este orden):<br/>
-            <strong>1: Código, 2: Nombre, 3: Fecha (YYYY-MM-DD)</strong>
+            Lectura inteligente habilitada. El sistema detectará las columnas obligatorias sin importar el orden:<br/>
+            <strong>ID envío, Título, Fecha (DD/MM/YYYY o YYYY-MM-DD)</strong>
           </p>
           <input 
             type="file" 
