@@ -13,6 +13,7 @@ const withPWA = withPWAInit({
 
 const nextConfig = {
   reactStrictMode: true,
+  turbopack: {}, // Soluciona el conflicto de Next.js 16 con plugins basados en Webpack
 };
 
 export default withPWA(nextConfig);
