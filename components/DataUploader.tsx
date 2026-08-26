@@ -31,16 +31,16 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
       const headerRow = worksheet.getRow(1);
       headerRow.eachCell((cell, colNumber) => {
         const text = cell.text?.trim().toLowerCase() || "";
-        if (text.includes("correo") || text.includes("email")) headerMap.correo = colNumber;
+        if (text.includes("correo") || text.includes("email") || text.includes("electrónico")) headerMap.correo = colNumber;
         else if (text.includes("nombre")) headerMap.nombre = colNumber;
         else if (text.includes("apellido")) headerMap.apellido = colNumber;
         else if (text.includes("rol")) headerMap.rol = colNumber;
-        else if (text.includes("tel") || text.includes("celular")) headerMap.telefono = colNumber;
+        else if (text.includes("tel") || text.includes("móvil") || text.includes("celular")) headerMap.telefono = colNumber;
         else if (text.includes("documento") || text.includes("doc")) headerMap.documento = colNumber;
       });
 
       if (!headerMap.correo || !headerMap.nombre || !headerMap.apellido) {
-        throw new Error("El archivo debe contener columnas reconocibles para Correo, Nombre y Apellido.");
+        throw new Error("El archivo no contiene las columnas necesarias (CORREO ELECTRÓNICO, NOMBRE, APELLIDOS).");
       }
 
       worksheet.eachRow((row, rowNumber) => {
@@ -68,7 +68,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
       });
 
       if (participantes.length === 0) {
-        throw new Error("No se encontraron registros válidos.");
+        throw new Error("No se encontraron registros válidos de participantes.");
       }
 
       const { error } = await supabase
@@ -77,7 +77,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         
       if (error) throw error;
 
-      setMensaje({ tipo: "exito", texto: `Se cargaron ${participantes.length} participantes para ${moduloSeleccionado}.` });
+      setMensaje({ tipo: "exito", texto: `Se cargaron ${participantes.length} participantes para el módulo: ${moduloSeleccionado}.` });
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: `Error: ${error.message}` });
     } finally {
@@ -111,7 +111,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
       });
 
       if (!headerMap.codigo || !headerMap.nombre || !headerMap.fecha) {
-        throw new Error("El archivo debe contener columnas reconocibles para ID/Código, Título y Fecha.");
+        throw new Error("El archivo no contiene las columnas necesarias (ID envío, Título, Fecha).");
       }
 
       worksheet.eachRow((row, rowNumber) => {
@@ -152,7 +152,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         
       if (error) throw error;
 
-      setMensaje({ tipo: "exito", texto: `Se cargaron ${ponencias.length} ponencias.` });
+      setMensaje({ tipo: "exito", texto: `Se cargaron ${ponencias.length} ponencias exitosamente.` });
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: `Error: ${error.message}` });
     } finally {
@@ -176,14 +176,17 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         {/* Card Participantes */}
-        <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#c81474]">
+        <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#c81474] transition-colors">
           <div className="bg-pink-100 p-4 rounded-full mb-4">
             <Users className="w-8 h-8 text-[#c81474]" />
           </div>
           <h3 className="text-lg font-bold text-gray-900 mb-2">Base de Datos Participantes</h3>
-          <p className="text-gray-600 text-xs mb-4">
-            Los participantes se cargarán exclusivamente para el módulo: <strong>{moduloSeleccionado}</strong>.
+          
+          <p className="text-gray-500 text-xs mb-4">
+            Las columnas necesitadas en el Excel se llaman (sin importar el orden):<br/>
+            <strong className="text-gray-800">APELLIDOS, NOMBRE, CORREO ELECTRÓNICO, TELÉFONO MÓVIL, NÚMERO DE DOCUMENTO, ROL</strong>
           </p>
+          
           <input 
             type="file" 
             accept=".xlsx, .xls" 
@@ -194,7 +197,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
           <button 
             onClick={() => fileInputParticipantes.current?.click()} 
             disabled={cargando !== null} 
-            className="w-full bg-[#c81474] hover:bg-pink-800 text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center space-x-2 disabled:opacity-70"
+            className="w-full mt-auto bg-[#c81474] hover:bg-pink-800 text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center space-x-2 disabled:opacity-70 transition-colors"
           >
             {cargando === "participantes" ? (
               <span className="animate-pulse">Procesando...</span>
@@ -209,12 +212,17 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
 
         {/* Card Ponencias (Solo visible si el módulo es Ponencias) */}
         {moduloSeleccionado === "Ponencias" && (
-          <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#311b42]">
+          <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#311b42] transition-colors">
             <div className="bg-purple-100 p-4 rounded-full mb-4">
               <FileText className="w-8 h-8 text-[#311b42]" />
             </div>
             <h3 className="text-lg font-bold text-gray-900 mb-2">Cronograma de Ponencias</h3>
-            <p className="text-gray-600 text-xs mb-4">Solo disponible para el módulo central de Ponencias.</p>
+            
+            <p className="text-gray-500 text-xs mb-4">
+              Las columnas necesitadas en el Excel se llaman (sin importar el orden):<br/>
+              <strong className="text-gray-800">ID envío, Título, Fecha (Formato DD/MM/YYYY)</strong>
+            </p>
+            
             <input 
               type="file" 
               accept=".xlsx, .xls" 
@@ -225,7 +233,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
             <button 
               onClick={() => fileInputPonencias.current?.click()} 
               disabled={cargando !== null} 
-              className="w-full bg-[#311b42] hover:bg-purple-950 text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center space-x-2 disabled:opacity-70"
+              className="w-full mt-auto bg-[#311b42] hover:bg-purple-950 text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center space-x-2 disabled:opacity-70 transition-colors"
             >
               {cargando === "ponencias" ? (
                 <span className="animate-pulse">Procesando...</span>

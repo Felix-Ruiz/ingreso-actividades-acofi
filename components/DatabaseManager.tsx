@@ -26,8 +26,13 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
         .from(table)
         .select(activeTab === "checkins" ? "*, base_datos_participantes(nombre, apellido)" : "*");
       
-      if (activeTab !== "ponencias") {
-        query = query.eq("modulo", moduloSeleccionado);
+      // Filtros para asegurar que no traiga filas basura (vacías) creadas por errores de subida
+      if (activeTab === "participantes") {
+        query = query.not("correo", "is", null).eq("modulo", moduloSeleccionado);
+      } else if (activeTab === "ponencias") {
+        query = query.not("codigo_ponencia", "is", null);
+      } else if (activeTab === "checkins") {
+        query = query.not("correo_usuario", "is", null).eq("modulo", moduloSeleccionado);
       }
       
       const { data: result, error } = await query
@@ -44,6 +49,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     }
   };
 
+  // Se ejecuta siempre que cambie la pestaña o el módulo
   useEffect(() => { 
     fetchData(); 
     setSearchTerm(""); 
@@ -125,7 +131,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
         </div>
         <button 
           onClick={fetchData} 
-          className="ml-4 p-2 text-gray-600 hover:text-[#c81474]"
+          className="ml-4 p-2 text-gray-600 hover:text-[#c81474] transition-colors"
         >
           <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
         </button>
@@ -185,7 +191,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                           />
                         </div>
                       ) : (
-                        `${item.nombre || "-"} ${item.apellido || ""}`
+                        `${item.nombre || ""} ${item.apellido || ""}`
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-700">{item.correo}</td>
@@ -297,7 +303,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                       {item.correo_usuario || "-"}
                     </td>
                     <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
-                      {new Date(item.created_at).toLocaleString()}
+                      {item.created_at ? new Date(item.created_at).toLocaleString() : item.dia_evento}
                     </td>
                     <td className="px-4 py-3">
                       <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-bold capitalize">
@@ -308,6 +314,13 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                 )}
               </tr>
             ))}
+            {filteredData.length === 0 && !loading && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                  No se encontraron registros válidos para este módulo.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

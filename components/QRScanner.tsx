@@ -26,20 +26,25 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         
         const config = { fps: 10, qrbox: { width: 250, height: 250 } };
         
-        const cameras = await Html5Qrcode.getCameras();
-        if (cameras && cameras.length > 0) {
-          // Busca preferiblemente la cámara trasera, sino usa la primera (PC Webcam)
-          const backCamera = cameras.find(c => c.label.toLowerCase().includes('back'));
-          const cameraId = backCamera ? backCamera.id : cameras[0].id;
-          
-          await html5QrCode.start(cameraId, config, onScanSuccess, () => {});
+        // 1. Intentar iniciar cámara trasera (Smartphones)
+        try {
+          await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
           isScanningRef.current = true;
-        } else {
-          setResultado({ tipo: "error", mensaje: "No se detectaron cámaras conectadas." });
+        } catch (errEnv) {
+          // 2. Si falla (PC de escritorio/Laptops), intentar cámara frontal/Webcam estándar
+          try {
+            await html5QrCode.start({ facingMode: "user" }, config, onScanSuccess, () => {});
+            isScanningRef.current = true;
+          } catch (errUser) {
+            // 3. Si ambos fallan, mostrar mensaje claro de permisos
+            setResultado({ 
+              tipo: "error", 
+              mensaje: "Por favor, otorga permisos de cámara en tu navegador y recarga la página." 
+            });
+          }
         }
       } catch (err) {
-        console.error("Error iniciando cámara:", err);
-        setResultado({ tipo: "error", mensaje: "Por favor, otorga permisos de cámara al navegador." });
+        console.error("Error general inicializando cámara:", err);
       }
     };
 
@@ -72,7 +77,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
       : textoDecodificado.trim().toLowerCase();
 
     if (!correo) {
-      mostrarResultadoTemporal({ tipo: "error", mensaje: "QR inválido o sin correo." });
+      mostrarResultadoTemporal({ tipo: "error", mensaje: "QR inválido o no contiene correo electrónico." });
       return;
     }
 
@@ -106,7 +111,11 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         .single();
 
       if (checkinPrevio) {
-        mostrarResultadoTemporal({ tipo: "error", mensaje: `Ya ingresó a ${moduloSeleccionado} hoy.`, nombre: `${usuario.nombre} ${usuario.apellido}` });
+        mostrarResultadoTemporal({ 
+          tipo: "error", 
+          mensaje: `Ya ingresó a ${moduloSeleccionado} hoy.`, 
+          nombre: `${usuario.nombre} ${usuario.apellido}` 
+        });
         return;
       }
 
@@ -120,15 +129,15 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         }]);
 
       if (errInsert) throw errInsert;
-      
+
       mostrarResultadoTemporal({ 
         tipo: "exito", 
         mensaje: `Ingreso autorizado para ${moduloSeleccionado}`, 
         nombre: `${usuario.nombre} ${usuario.apellido}` 
       });
-      
+
     } catch (error: any) {
-      mostrarResultadoTemporal({ tipo: "error", mensaje: "Error: " + error.message });
+      mostrarResultadoTemporal({ tipo: "error", mensaje: "Error de sistema: " + error.message });
     }
   };
 
@@ -151,9 +160,9 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
   };
 
   const sincronizarDatos = async () => {
-    if (!navigator.onLine) { 
-      alert("Sin conexión a internet."); 
-      return; 
+    if (!navigator.onLine) {
+      alert("Sigues sin conexión a internet.");
+      return;
     }
     
     const offlineData = JSON.parse(localStorage.getItem("offline_checkins") || "[]");
@@ -172,13 +181,13 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
           }]);
         sincronizados++;
       } catch (e) {
-        console.error(e);
+        console.error("Error al sincronizar fila offline", e);
       }
     }
-    
+
     localStorage.removeItem("offline_checkins");
     setPendientesSync([]);
-    alert(`Se sincronizaron ${sincronizados} registros.`);
+    alert(`Se sincronizaron ${sincronizados} registros exitosamente.`);
   };
 
   return (
@@ -195,7 +204,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
           </div>
           <button 
             onClick={sincronizarDatos} 
-            className="flex items-center space-x-1 bg-orange-500 text-white px-3 py-2 rounded-lg text-sm font-bold"
+            className="flex items-center space-x-1 bg-orange-500 text-white px-3 py-2 rounded-lg text-sm font-bold transition"
           >
             <RefreshCw className="w-4 h-4" />
             <span>Sincronizar</span>
@@ -205,15 +214,20 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
 
       <div className="mt-8 relative overflow-hidden rounded-xl bg-black min-h-87.5 flex items-center justify-center">
         <div id="qr-reader-custom" className="w-full h-full" style={{ display: resultado ? 'none' : 'block' }}></div>
+        
         {resultado && (
           <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-white/95 backdrop-blur-md">
             {resultado.tipo === "exito" && <CheckCircle className="w-24 h-24 text-green-500 mb-4" />}
             {resultado.tipo === "error" && <XCircle className="w-24 h-24 text-red-500 mb-4" />}
             {resultado.tipo === "offline" && <WifiOff className="w-24 h-24 text-orange-500 mb-4" />}
+            
             {resultado.nombre && <h3 className="text-3xl font-extrabold text-gray-900 mb-2 text-center">{resultado.nombre}</h3>}
             <p className={`text-center font-bold text-xl ${resultado.tipo === "error" ? "text-red-600" : "text-gray-700"}`}>
               {resultado.mensaje}
             </p>
+            {resultado.tipo !== "error" && (
+               <p className="text-gray-400 text-sm mt-6 animate-pulse">Cámara reiniciando...</p>
+            )}
           </div>
         )}
       </div>
