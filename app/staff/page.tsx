@@ -19,12 +19,10 @@ export default function StaffDashboard() {
   
   const [vistaActiva, setVistaActiva] = useState<"dashboard" | "scanner" | "manual" | "datos" | "registros" | "vivo" | "config">("dashboard");
   
-  // Gestión de Módulos (Multi-Eventos)
   const [modulosList, setModulosList] = useState<string[]>(["Ponencias"]);
   const [moduloSeleccionado, setModuloSeleccionado] = useState<string>("Ponencias");
   const [nuevoModulo, setNuevoModulo] = useState("");
   
-  // Sistema de Notificaciones UI (Reemplaza los alert)
   const [notificacion, setNotificacion] = useState<{ tipo: "exito" | "error", mensaje: string } | null>(null);
 
   const router = useRouter();
@@ -45,17 +43,20 @@ export default function StaffDashboard() {
       
       setUsuarioActivo(session.user.email || "Staff");
 
-      // Verificar Rol
       const { data: rolData } = await supabase
         .from("staff_roles")
         .select("rol")
         .eq("correo", session.user.email)
         .single();
       
-      if (rolData) setRolActivo(rolData.rol);
+      if (rolData) {
+        setRolActivo(rolData.rol);
+      }
 
-      // Cargar Módulos disponibles
-      const { data: modulosData } = await supabase.from("modulos").select("nombre");
+      const { data: modulosData } = await supabase
+        .from("modulos")
+        .select("nombre");
+        
       if (modulosData && modulosData.length > 0) {
         setModulosList(modulosData.map(m => m.nombre));
       }
@@ -74,8 +75,12 @@ export default function StaffDashboard() {
   const crearNuevoModulo = async () => {
     if (!nuevoModulo.trim()) return;
     try {
-      const { error } = await supabase.from("modulos").insert([{ nombre: nuevoModulo.trim() }]);
+      const { error } = await supabase
+        .from("modulos")
+        .insert([{ nombre: nuevoModulo.trim() }]);
+        
       if (error) throw error;
+      
       setModulosList([...modulosList, nuevoModulo.trim()]);
       setNuevoModulo("");
       mostrarNotificacion("exito", "Módulo creado exitosamente.");
@@ -135,7 +140,9 @@ export default function StaffDashboard() {
         
         {/* Selector Global de Módulo Activo */}
         <div className="flex items-center bg-white/10 rounded-lg px-3 py-1">
-          <span className="text-xs text-gray-300 mr-2 uppercase tracking-wide font-bold hidden md:block">Módulo Activo:</span>
+          <span className="text-xs text-gray-300 mr-2 uppercase tracking-wide font-bold hidden md:block">
+            Módulo Activo:
+          </span>
           <select 
             value={moduloSeleccionado} 
             onChange={(e) => setModuloSeleccionado(e.target.value)}
@@ -168,14 +175,18 @@ export default function StaffDashboard() {
         <div className="flex overflow-x-auto gap-2 mb-6 pb-2 hide-scrollbar">
           <button 
             onClick={() => setVistaActiva("dashboard")} 
-            className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors ${vistaActiva === "dashboard" ? "bg-white text-[#311b42] shadow-sm border border-gray-200" : "text-gray-500 hover:bg-gray-200"}`}
+            className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
+              vistaActiva === "dashboard" ? "bg-white text-[#311b42] shadow-sm border border-gray-200" : "text-gray-500 hover:bg-gray-200"
+            }`}
           >
             Panel Principal
           </button>
           
           <button 
             onClick={() => setVistaActiva("scanner")} 
-            className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${vistaActiva === "scanner" ? "bg-[#c81474] text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}
+            className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
+              vistaActiva === "scanner" ? "bg-[#c81474] text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}
           >
             <QrCode className="w-4 h-4" /> 
             <span>Lector QR</span>
@@ -183,7 +194,9 @@ export default function StaffDashboard() {
           
           <button 
             onClick={() => setVistaActiva("manual")} 
-            className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${vistaActiva === "manual" ? "bg-[#c81474] text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}
+            className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
+              vistaActiva === "manual" ? "bg-[#c81474] text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}
           >
             <Keyboard className="w-4 h-4" /> 
             <span>Registro Manual</span>
@@ -191,17 +204,23 @@ export default function StaffDashboard() {
 
           {rolActivo === "Master" && (
             <>
-              <button 
-                onClick={() => setVistaActiva("vivo")} 
-                className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${vistaActiva === "vivo" ? "bg-emerald-600 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}
-              >
-                <Radio className="w-4 h-4" /> 
-                <span>En Vivo</span>
-              </button>
+              {moduloSeleccionado === "Ponencias" && (
+                <button 
+                  onClick={() => setVistaActiva("vivo")} 
+                  className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
+                    vistaActiva === "vivo" ? "bg-emerald-600 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                  }`}
+                >
+                  <Radio className="w-4 h-4" /> 
+                  <span>En Vivo</span>
+                </button>
+              )}
               
               <button 
                 onClick={() => setVistaActiva("registros")} 
-                className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${vistaActiva === "registros" ? "bg-emerald-600 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}
+                className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
+                  vistaActiva === "registros" ? "bg-emerald-600 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
               >
                 <TableProperties className="w-4 h-4" /> 
                 <span>Registros</span>
@@ -209,7 +228,9 @@ export default function StaffDashboard() {
               
               <button 
                 onClick={() => setVistaActiva("datos")} 
-                className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${vistaActiva === "datos" ? "bg-blue-600 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}
+                className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
+                  vistaActiva === "datos" ? "bg-blue-600 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
               >
                 <Database className="w-4 h-4" /> 
                 <span>Cargar Excels</span>
@@ -217,7 +238,9 @@ export default function StaffDashboard() {
               
               <button 
                 onClick={() => setVistaActiva("config")} 
-                className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${vistaActiva === "config" ? "bg-gray-800 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}
+                className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
+                  vistaActiva === "config" ? "bg-gray-800 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
               >
                 <Settings className="w-4 h-4" /> 
                 <span>Ajustes Master</span>
@@ -254,7 +277,7 @@ export default function StaffDashboard() {
               </div>
             </div>
 
-            {rolActivo === "Master" && (
+            {rolActivo === "Master" && moduloSeleccionado === "Ponencias" && (
               <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
                 <div className="bg-purple-100 p-4 rounded-full mb-4">
                   <FileSpreadsheet className="w-10 h-10 text-[#311b42]" />
@@ -296,10 +319,12 @@ export default function StaffDashboard() {
           </div>
         )}
 
-        {vistaActiva === "vivo" && rolActivo === "Master" && (
+        {vistaActiva === "vivo" && rolActivo === "Master" && moduloSeleccionado === "Ponencias" && (
           <div>
             <h2 className="text-2xl font-extrabold text-gray-900 mb-4">Dashboard en Vivo</h2>
-            <p className="text-gray-600 mb-6 text-sm">Monitor de evaluaciones en tiempo real conectado a Supabase.</p>
+            <p className="text-gray-600 mb-6 text-sm">
+              Monitor de evaluaciones en tiempo real conectado a Supabase.
+            </p>
             <RealTimeDashboard />
           </div>
         )}
@@ -307,14 +332,14 @@ export default function StaffDashboard() {
         {vistaActiva === "registros" && rolActivo === "Master" && (
           <div>
             <h2 className="text-2xl font-extrabold text-gray-900 mb-4">Gestor de Base de Datos</h2>
-            <DatabaseManager />
+            <DatabaseManager moduloSeleccionado={moduloSeleccionado} />
           </div>
         )}
 
         {vistaActiva === "datos" && rolActivo === "Master" && (
           <div>
             <h2 className="text-2xl font-extrabold text-gray-900 mb-4">Administración de Datos</h2>
-            <DataUploader />
+            <DataUploader moduloSeleccionado={moduloSeleccionado} />
           </div>
         )}
 
@@ -325,7 +350,9 @@ export default function StaffDashboard() {
             {/* Creación de Módulos */}
             <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
               <h3 className="text-lg font-bold text-gray-900 mb-4">Crear Nuevo Módulo (Evento)</h3>
-              <p className="text-sm text-gray-600 mb-4">Agrega eventos como "Fiesta" o "Almuerzo" para tener puntos de escaneo independientes.</p>
+              <p className="text-sm text-gray-600 mb-4">
+                Agrega eventos como "Fiesta" o "Almuerzo" para tener puntos de escaneo independientes.
+              </p>
               <div className="flex space-x-2">
                 <input 
                   type="text" 
