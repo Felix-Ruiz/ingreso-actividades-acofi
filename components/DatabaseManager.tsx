@@ -12,7 +12,6 @@ export default function DatabaseManager() {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   
-  // Estados para Edición
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
 
@@ -28,7 +27,7 @@ export default function DatabaseManager() {
         .from(table)
         .select(activeTab === "checkins" ? "*, base_datos_participantes(nombre, apellido)" : "*")
         .order(activeTab === "ponencias" ? "fecha_programada" : "created_at", { ascending: false })
-        .limit(100); // Límite inicial de visualización
+        .limit(200);
 
       if (error) throw error;
       setData(result || []);
@@ -52,21 +51,15 @@ export default function DatabaseManager() {
 
   const guardarEdicion = async (idKey: string, table: string) => {
     try {
-      const { error } = await supabase
-        .from(table)
-        .update(editForm)
-        .eq(idKey, editingId);
-
+      const { error } = await supabase.from(table).update(editForm).eq(idKey, editingId);
       if (error) throw error;
-      
       setEditingId(null);
-      fetchData(); // Recargar tabla
+      fetchData(); 
     } catch (error) {
-      alert("Error al guardar: " + (error as any).message);
+      console.error("Error al guardar:", error);
     }
   };
 
-  // Filtrado de búsqueda local
   const filteredData = data.filter((item) => 
     JSON.stringify(item).toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -74,163 +67,117 @@ export default function DatabaseManager() {
   return (
     <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
       
-      {/* Pestañas internas */}
       <div className="flex border-b border-gray-200">
-        <button onClick={() => setActiveTab("participantes")} className={`flex-1 py-4 text-sm font-bold transition-colors ${activeTab === "participantes" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-600 hover:bg-gray-100"}`}>
-          Participantes
-        </button>
-        <button onClick={() => setActiveTab("ponencias")} className={`flex-1 py-4 text-sm font-bold transition-colors ${activeTab === "ponencias" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-600 hover:bg-gray-100"}`}>
-          Ponencias
-        </button>
-        <button onClick={() => setActiveTab("checkins")} className={`flex-1 py-4 text-sm font-bold transition-colors ${activeTab === "checkins" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-600 hover:bg-gray-100"}`}>
-          Historial Check-ins
-        </button>
+        <button onClick={() => setActiveTab("participantes")} className={`flex-1 py-4 text-sm font-bold transition-colors ${activeTab === "participantes" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-900 hover:bg-gray-100"}`}>Participantes</button>
+        <button onClick={() => setActiveTab("ponencias")} className={`flex-1 py-4 text-sm font-bold transition-colors ${activeTab === "ponencias" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-900 hover:bg-gray-100"}`}>Ponencias</button>
+        <button onClick={() => setActiveTab("checkins")} className={`flex-1 py-4 text-sm font-bold transition-colors ${activeTab === "checkins" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-900 hover:bg-gray-100"}`}>Check-ins (Historial)</button>
       </div>
 
-      {/* Barra de herramientas */}
       <div className="p-4 bg-white border-b border-gray-100 flex justify-between items-center">
         <div className="relative w-full max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input 
             type="text" 
-            placeholder="Filtrar en esta tabla..." 
+            placeholder="Filtrar..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c81474]"
+            className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 placeholder-gray-500"
           />
         </div>
-        <button onClick={fetchData} className="ml-4 p-2 text-gray-500 hover:text-[#c81474] transition-colors" title="Actualizar">
+        <button onClick={fetchData} className="ml-4 p-2 text-gray-600 hover:text-[#c81474]" title="Actualizar">
           <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
 
-      {/* Contenedor de la Tabla */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm text-left">
-          <thead className="bg-gray-50 text-gray-600 font-bold border-b border-gray-200">
+          <thead className="bg-gray-100 text-gray-900 font-extrabold border-b border-gray-200">
             <tr>
               {activeTab === "participantes" && (
-                <>
-                  <th className="px-4 py-3">Nombre</th>
-                  <th className="px-4 py-3">Correo</th>
-                  <th className="px-4 py-3">Rol</th>
-                  <th className="px-4 py-3">Documento</th>
-                  <th className="px-4 py-3 text-right">Acciones</th>
-                </>
+                <><th className="px-4 py-3">Nombre Completo</th><th className="px-4 py-3">Correo</th><th className="px-4 py-3">Rol</th><th className="px-4 py-3">Documento</th><th className="px-4 py-3 text-right">Acciones</th></>
               )}
               {activeTab === "ponencias" && (
-                <>
-                  <th className="px-4 py-3">Código</th>
-                  <th className="px-4 py-3">Título</th>
-                  <th className="px-4 py-3">Fecha</th>
-                  <th className="px-4 py-3 text-right">Acciones</th>
-                </>
+                <><th className="px-4 py-3">Código</th><th className="px-4 py-3">Título</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3 text-right">Acciones</th></>
               )}
               {activeTab === "checkins" && (
-                <>
-                  <th className="px-4 py-3">Participante</th>
-                  <th className="px-4 py-3">Correo</th>
-                  <th className="px-4 py-3">Fecha Check-in</th>
-                  <th className="px-4 py-3">Estado</th>
-                </>
+                <><th className="px-4 py-3">Participante</th><th className="px-4 py-3">Correo</th><th className="px-4 py-3">Módulo</th><th className="px-4 py-3">Fecha</th></>
               )}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-200">
             {filteredData.map((item, index) => (
-              <tr key={index} className="hover:bg-gray-50 transition-colors">
-                
-                {/* RENDERIZADO PARTICIPANTES */}
+              <tr key={index} className="hover:bg-gray-50">
                 {activeTab === "participantes" && (
                   <>
-                    <td className="px-4 py-3 font-medium">
+                    <td className="px-4 py-3 font-bold text-gray-900">
                       {editingId === item.correo ? (
                         <div className="flex space-x-1">
-                          <input type="text" value={editForm.nombre} onChange={e => setEditForm({...editForm, nombre: e.target.value})} className="w-24 border p-1 rounded" />
-                          <input type="text" value={editForm.apellido} onChange={e => setEditForm({...editForm, apellido: e.target.value})} className="w-24 border p-1 rounded" />
+                          <input type="text" value={editForm.nombre || ""} onChange={e => setEditForm({...editForm, nombre: e.target.value})} className="w-24 border border-gray-400 p-1 rounded text-gray-900" />
+                          <input type="text" value={editForm.apellido || ""} onChange={e => setEditForm({...editForm, apellido: e.target.value})} className="w-24 border border-gray-400 p-1 rounded text-gray-900" />
                         </div>
-                      ) : (`${item.nombre} ${item.apellido}`)}
+                      ) : (`${item.nombre || "-"} ${item.apellido || ""}`)}
                     </td>
-                    <td className="px-4 py-3 text-gray-500">{item.correo}</td>
+                    <td className="px-4 py-3 text-gray-700">{item.correo}</td>
                     <td className="px-4 py-3">
                       {editingId === item.correo ? (
-                        <select value={editForm.rol} onChange={e => setEditForm({...editForm, rol: e.target.value})} className="border p-1 rounded">
+                        <select value={editForm.rol} onChange={e => setEditForm({...editForm, rol: e.target.value})} className="border border-gray-400 p-1 rounded text-gray-900">
                           <option value="Participante">Participante</option>
                           <option value="Moderador">Moderador</option>
                         </select>
-                      ) : (
-                        <span className="bg-pink-100 text-[#c81474] px-2 py-1 rounded-full text-xs font-bold">{item.rol}</span>
-                      )}
+                      ) : (<span className="bg-pink-100 text-[#c81474] px-2 py-1 rounded-full text-xs font-bold">{item.rol || "Participante"}</span>)}
                     </td>
-                    <td className="px-4 py-3 text-gray-500">
+                    <td className="px-4 py-3 text-gray-700">
                       {editingId === item.correo ? (
-                        <input type="text" value={editForm.numero_documento || ""} onChange={e => setEditForm({...editForm, numero_documento: e.target.value})} className="w-full border p-1 rounded" />
+                        <input type="text" value={editForm.numero_documento || ""} onChange={e => setEditForm({...editForm, numero_documento: e.target.value})} className="w-full border border-gray-400 p-1 rounded text-gray-900" />
                       ) : (item.numero_documento || "-")}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {editingId === item.correo ? (
                         <div className="flex justify-end space-x-2">
-                          <button onClick={() => guardarEdicion("correo", "base_datos_participantes")} className="text-green-600 hover:text-green-800"><Save className="w-5 h-5"/></button>
-                          <button onClick={() => setEditingId(null)} className="text-red-500 hover:text-red-700"><X className="w-5 h-5"/></button>
+                          <button onClick={() => guardarEdicion("correo", "base_datos_participantes")} className="text-green-600"><Save className="w-5 h-5"/></button>
+                          <button onClick={() => setEditingId(null)} className="text-red-500"><X className="w-5 h-5"/></button>
                         </div>
-                      ) : (
-                        <button onClick={() => iniciarEdicion(item, "correo")} className="text-gray-400 hover:text-[#311b42]"><Edit2 className="w-5 h-5"/></button>
-                      )}
+                      ) : (<button onClick={() => iniciarEdicion(item, "correo")} className="text-gray-500 hover:text-[#311b42]"><Edit2 className="w-5 h-5"/></button>)}
                     </td>
                   </>
                 )}
 
-                {/* RENDERIZADO PONENCIAS */}
                 {activeTab === "ponencias" && (
                   <>
-                    <td className="px-4 py-3 font-medium text-gray-700">{item.codigo_ponencia}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 font-bold text-gray-900">{item.codigo_ponencia || "-"}</td>
+                    <td className="px-4 py-3 text-gray-900">
                       {editingId === item.codigo_ponencia ? (
-                        <input type="text" value={editForm.nombre_ponencia} onChange={e => setEditForm({...editForm, nombre_ponencia: e.target.value})} className="w-full border p-1 rounded" />
-                      ) : (item.nombre_ponencia)}
+                        <input type="text" value={editForm.nombre_ponencia || ""} onChange={e => setEditForm({...editForm, nombre_ponencia: e.target.value})} className="w-full border border-gray-400 p-1 rounded text-gray-900" />
+                      ) : (item.nombre_ponencia || "-")}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-gray-900">
                       {editingId === item.codigo_ponencia ? (
-                        <input type="date" value={editForm.fecha_programada} onChange={e => setEditForm({...editForm, fecha_programada: e.target.value})} className="border p-1 rounded" />
-                      ) : (item.fecha_programada)}
+                        <input type="date" value={editForm.fecha_programada || ""} onChange={e => setEditForm({...editForm, fecha_programada: e.target.value})} className="border border-gray-400 p-1 rounded text-gray-900" />
+                      ) : (item.fecha_programada || "-")}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {editingId === item.codigo_ponencia ? (
                         <div className="flex justify-end space-x-2">
-                          <button onClick={() => guardarEdicion("codigo_ponencia", "ponencias")} className="text-green-600 hover:text-green-800"><Save className="w-5 h-5"/></button>
-                          <button onClick={() => setEditingId(null)} className="text-red-500 hover:text-red-700"><X className="w-5 h-5"/></button>
+                          <button onClick={() => guardarEdicion("codigo_ponencia", "ponencias")} className="text-green-600"><Save className="w-5 h-5"/></button>
+                          <button onClick={() => setEditingId(null)} className="text-red-500"><X className="w-5 h-5"/></button>
                         </div>
-                      ) : (
-                        <button onClick={() => iniciarEdicion(item, "codigo_ponencia")} className="text-gray-400 hover:text-[#311b42]"><Edit2 className="w-5 h-5"/></button>
-                      )}
+                      ) : (<button onClick={() => iniciarEdicion(item, "codigo_ponencia")} className="text-gray-500 hover:text-[#311b42]"><Edit2 className="w-5 h-5"/></button>)}
                     </td>
                   </>
                 )}
 
-                {/* RENDERIZADO CHECK-INS (Solo vista) */}
                 {activeTab === "checkins" && (
                   <>
-                    <td className="px-4 py-3 font-medium text-gray-800">
-                      {item.base_datos_participantes ? `${item.base_datos_participantes.nombre} ${item.base_datos_participantes.apellido}` : "Desconocido"}
+                    <td className="px-4 py-3 font-bold text-gray-900">
+                      {item.base_datos_participantes ? `${item.base_datos_participantes.nombre || ""} ${item.base_datos_participantes.apellido || ""}` : "-"}
                     </td>
-                    <td className="px-4 py-3 text-gray-500">{item.correo_usuario}</td>
-                    <td className="px-4 py-3 font-mono text-gray-600">{item.dia_evento}</td>
-                    <td className="px-4 py-3">
-                      <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-bold capitalize">{item.estado}</span>
-                    </td>
+                    <td className="px-4 py-3 text-gray-700">{item.correo_usuario || "-"}</td>
+                    <td className="px-4 py-3 text-gray-900 font-bold">{item.modulo || "Ponencias"}</td>
+                    <td className="px-4 py-3 text-gray-700">{item.dia_evento || "-"}</td>
                   </>
                 )}
-
               </tr>
             ))}
-            
-            {filteredData.length === 0 && !loading && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
-                  No se encontraron registros.
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>

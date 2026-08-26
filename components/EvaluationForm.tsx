@@ -19,7 +19,6 @@ export default function EvaluationForm() {
       paperLabel: "Paper Code",
       ratingLabel: "Rating (0-1000)",
       submit: "Submit rating",
-      loading: "Processing...",
       uNotExist: "Authentication Error: Email not found in the records.",
       noCheckin: "Access Denied: No valid check-in for today.",
       pNotExist: "Search Error: Paper code not found.",
@@ -34,7 +33,6 @@ export default function EvaluationForm() {
       paperLabel: "Código de Ponencia",
       ratingLabel: "Calificación (0-1000)",
       submit: "Enviar calificación",
-      loading: "Procesando...",
       uNotExist: "Error de Autenticación: Email no encontrado en los registros.",
       noCheckin: "Acceso Denegado: No cuenta con registro de ingreso válido para hoy.",
       pNotExist: "Error de Búsqueda: Código de ponencia no encontrado.",
@@ -57,6 +55,7 @@ export default function EvaluationForm() {
     const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 
     try {
+      // 1. Validar existencia del usuario y obtener su rol
       const { data: usuario, error: errUsuario } = await supabase
         .from("base_datos_participantes")
         .select("nombre, rol")
@@ -65,7 +64,7 @@ export default function EvaluationForm() {
 
       if (!usuario || errUsuario) throw new Error(t.uNotExist);
 
-      // Si el rol NO es Moderador, exigimos el check-in diario
+      // 2. Si el rol NO es Moderador, exigimos el check-in diario
       if (usuario.rol !== "Moderador") {
         const { data: checkin } = await supabase
           .from("check_ins")
@@ -78,6 +77,7 @@ export default function EvaluationForm() {
         if (!checkin) throw new Error(t.noCheckin);
       }
 
+      // 3. Validar Ponencia y Fecha
       const { data: ponencia, error: errPonencia } = await supabase
         .from("ponencias")
         .select("fecha_programada")
@@ -87,6 +87,7 @@ export default function EvaluationForm() {
       if (!ponencia || errPonencia) throw new Error(t.pNotExist);
       if (ponencia.fecha_programada !== todayStr) throw new Error(t.dateInvalid);
 
+      // 4. Validar si ya votó
       const { data: evaluacionPrevia } = await supabase
         .from("evaluaciones")
         .select("id")
@@ -96,6 +97,7 @@ export default function EvaluationForm() {
 
       if (evaluacionPrevia) throw new Error(t.already);
 
+      // 5. Registrar Evaluación
       const { error: errInsert } = await supabase
         .from("evaluaciones")
         .insert([
@@ -108,6 +110,7 @@ export default function EvaluationForm() {
 
       if (errInsert) throw new Error(t.sysError);
 
+      // Éxito
       setMensaje({ tipo: "exito", texto: `${t.success}${usuario.nombre}` });
       setPaperCode("");
       setRating("");
@@ -127,7 +130,7 @@ export default function EvaluationForm() {
           <button
             onClick={() => { setIdioma("EN"); setMensaje(null); }}
             className={`px-4 py-1 text-sm font-bold rounded-full transition-colors ${
-              idioma === "EN" ? "bg-[#c81474] text-white" : "bg-transparent text-gray-500"
+              idioma === "EN" ? "bg-[#c81474] text-white" : "bg-transparent text-gray-900"
             }`}
           >
             EN
@@ -135,7 +138,7 @@ export default function EvaluationForm() {
           <button
             onClick={() => { setIdioma("ES"); setMensaje(null); }}
             className={`px-4 py-1 text-sm font-bold rounded-full transition-colors ${
-              idioma === "ES" ? "bg-[#c81474] text-white" : "bg-transparent text-gray-500"
+              idioma === "ES" ? "bg-[#c81474] text-white" : "bg-transparent text-gray-900"
             }`}
           >
             ES
@@ -155,9 +158,11 @@ export default function EvaluationForm() {
 
       {/* Alertas de Sistema */}
       {mensaje && (
-        <div className={`w-full p-4 mb-4 rounded-xl shadow-sm text-sm font-semibold text-center ${
-          mensaje.tipo === "error" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
-        }`}>
+        <div 
+          className={`w-full p-4 mb-4 rounded-xl shadow-sm text-sm font-bold text-center ${
+            mensaje.tipo === "error" ? "bg-red-100 text-red-800 border border-red-200" : "bg-green-100 text-green-800 border border-green-200"
+          }`}
+        >
           {mensaje.texto}
         </div>
       )}
@@ -171,7 +176,7 @@ export default function EvaluationForm() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder={t.emailLabel}
             disabled={loading}
-            className="w-full px-5 py-4 rounded-xl shadow-md border-0 focus:ring-2 focus:ring-[#c81474] outline-none text-gray-700 bg-white disabled:opacity-70"
+            className="w-full px-5 py-4 rounded-xl shadow-md border-0 focus:ring-2 focus:ring-[#c81474] outline-none text-gray-900 bg-white placeholder-gray-500 disabled:opacity-70"
             required
           />
           <div className="absolute right-4 top-1/2 transform -translate-y-1/2 w-6 h-6 bg-[#c81474] text-white rounded-full flex items-center justify-center font-bold text-sm cursor-help">
@@ -186,7 +191,7 @@ export default function EvaluationForm() {
             onChange={(e) => setPaperCode(e.target.value)}
             placeholder={t.paperLabel}
             disabled={loading}
-            className="w-full px-5 py-4 rounded-xl shadow-md border-0 focus:ring-2 focus:ring-[#c81474] outline-none text-gray-700 bg-white disabled:opacity-70 uppercase"
+            className="w-full px-5 py-4 rounded-xl shadow-md border-0 focus:ring-2 focus:ring-[#c81474] outline-none text-gray-900 bg-white placeholder-gray-500 disabled:opacity-70 uppercase"
             required
           />
         </div>
@@ -200,7 +205,7 @@ export default function EvaluationForm() {
             onChange={(e) => setRating(e.target.value)}
             placeholder={t.ratingLabel}
             disabled={loading}
-            className="w-full px-5 py-4 rounded-xl shadow-md border-0 focus:ring-2 focus:ring-[#c81474] outline-none text-gray-700 bg-white disabled:opacity-70"
+            className="w-full px-5 py-4 rounded-xl shadow-md border-0 focus:ring-2 focus:ring-[#c81474] outline-none text-gray-900 bg-white placeholder-gray-500 disabled:opacity-70"
             required
           />
         </div>
