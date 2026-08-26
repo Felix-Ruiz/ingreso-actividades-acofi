@@ -5,7 +5,7 @@ import { supabase } from "../lib/supabase";
 import ExcelJS from "exceljs";
 import { UploadCloud, Users, FileText, AlertCircle, CheckCircle } from "lucide-react";
 
-export default function DataUploader() {
+export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionado: string }) {
   const [cargando, setCargando] = useState<"participantes" | "ponencias" | null>(null);
   const [mensaje, setMensaje] = useState<{ tipo: "error" | "exito"; texto: string } | null>(null);
   
@@ -15,7 +15,7 @@ export default function DataUploader() {
   const procesarParticipantes = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
+    
     setCargando("participantes");
     setMensaje(null);
 
@@ -28,53 +28,56 @@ export default function DataUploader() {
       const participantes: any[] = [];
       const headerMap: { [key: string]: number } = {};
 
-      // 1. Mapeo Inteligente de Columnas (Lee la primera fila)
       const headerRow = worksheet.getRow(1);
       headerRow.eachCell((cell, colNumber) => {
-        const headerName = cell.text?.trim().toUpperCase();
-        if (headerName === "CORREO ELECTRÓNICO") headerMap.correo = colNumber;
-        else if (headerName === "NOMBRE") headerMap.nombre = colNumber;
-        else if (headerName === "APELLIDOS") headerMap.apellido = colNumber;
-        else if (headerName === "ROL") headerMap.rol = colNumber;
-        else if (headerName === "TELÉFONO MÓVIL") headerMap.telefono = colNumber;
-        else if (headerName === "NÚMERO DE DOCUMENTO") headerMap.documento = colNumber;
+        const text = cell.text?.trim().toLowerCase() || "";
+        if (text.includes("correo") || text.includes("email")) headerMap.correo = colNumber;
+        else if (text.includes("nombre")) headerMap.nombre = colNumber;
+        else if (text.includes("apellido")) headerMap.apellido = colNumber;
+        else if (text.includes("rol")) headerMap.rol = colNumber;
+        else if (text.includes("tel") || text.includes("celular")) headerMap.telefono = colNumber;
+        else if (text.includes("documento") || text.includes("doc")) headerMap.documento = colNumber;
       });
 
       if (!headerMap.correo || !headerMap.nombre || !headerMap.apellido) {
-        throw new Error("El archivo no contiene las columnas obligatorias exactas: CORREO ELECTRÓNICO, NOMBRE, APELLIDOS.");
+        throw new Error("El archivo debe contener columnas reconocibles para Correo, Nombre y Apellido.");
       }
 
-      // 2. Extracción dinámica de datos
       worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber === 1) return; // Saltamos los encabezados
-
+        if (rowNumber === 1) return;
+        
         const correo = row.getCell(headerMap.correo).text?.trim().toLowerCase();
         const nombre = row.getCell(headerMap.nombre).text?.trim();
         const apellido = row.getCell(headerMap.apellido).text?.trim();
         
-        const rol = headerMap.rol ? (row.getCell(headerMap.rol).text?.trim() || "Participante") : "Participante";
-        const telefono = headerMap.telefono ? row.getCell(headerMap.telefono).text?.trim() : null;
-        const documento = headerMap.documento ? row.getCell(headerMap.documento).text?.trim() : null;
-
         if (correo && nombre && apellido) {
+          const rol = headerMap.rol ? (row.getCell(headerMap.rol).text?.trim() || "Participante") : "Participante";
+          const telefono = headerMap.telefono ? row.getCell(headerMap.telefono).text?.trim() : null;
+          const documento = headerMap.documento ? row.getCell(headerMap.documento).text?.trim() : null;
+          
           participantes.push({ 
             correo, 
             nombre, 
             apellido, 
             rol, 
             telefono, 
-            numero_documento: documento 
+            numero_documento: documento, 
+            modulo: moduloSeleccionado 
           });
         }
       });
 
-      if (participantes.length === 0) throw new Error("No se encontraron registros válidos de participantes.");
+      if (participantes.length === 0) {
+        throw new Error("No se encontraron registros válidos.");
+      }
 
-      // 3. Inserción o actualización masiva en Supabase
-      const { error } = await supabase.from("base_datos_participantes").upsert(participantes);
+      const { error } = await supabase
+        .from("base_datos_participantes")
+        .upsert(participantes);
+        
       if (error) throw error;
 
-      setMensaje({ tipo: "exito", texto: `Se procesaron inteligentemente ${participantes.length} participantes con éxito.` });
+      setMensaje({ tipo: "exito", texto: `Se cargaron ${participantes.length} participantes para ${moduloSeleccionado}.` });
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: `Error: ${error.message}` });
     } finally {
@@ -86,7 +89,7 @@ export default function DataUploader() {
   const procesarPonencias = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
+    
     setCargando("ponencias");
     setMensaje(null);
 
@@ -99,22 +102,21 @@ export default function DataUploader() {
       const ponencias: any[] = [];
       const headerMap: { [key: string]: number } = {};
 
-      // Mapeo Inteligente para Ponencias
       const headerRow = worksheet.getRow(1);
       headerRow.eachCell((cell, colNumber) => {
-        const headerName = cell.text?.trim().toUpperCase();
-        if (headerName === "ID ENVÍO" || headerName === "ID ENVIO") headerMap.codigo = colNumber;
-        else if (headerName === "TÍTULO" || headerName === "TITULO") headerMap.nombre = colNumber;
-        else if (headerName === "FECHA") headerMap.fecha = colNumber;
+        const text = cell.text?.trim().toLowerCase() || "";
+        if (text.includes("id") || text.includes("codigo") || text.includes("envío")) headerMap.codigo = colNumber;
+        else if (text.includes("titulo") || text.includes("título") || text.includes("nombre")) headerMap.nombre = colNumber;
+        else if (text.includes("fecha")) headerMap.fecha = colNumber;
       });
 
       if (!headerMap.codigo || !headerMap.nombre || !headerMap.fecha) {
-        throw new Error("El archivo debe contener las columnas: ID envío, Título, Fecha.");
+        throw new Error("El archivo debe contener columnas reconocibles para ID/Código, Título y Fecha.");
       }
 
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return;
-
+        
         const codigo = row.getCell(headerMap.codigo).text?.trim();
         const nombre = row.getCell(headerMap.nombre).text?.trim();
         const celdaFecha = row.getCell(headerMap.fecha).value;
@@ -132,16 +134,25 @@ export default function DataUploader() {
         }
 
         if (codigo && nombre && fechaStr) {
-          ponencias.push({ codigo_ponencia: codigo, nombre_ponencia: nombre, fecha_programada: fechaStr });
+          ponencias.push({ 
+            codigo_ponencia: codigo, 
+            nombre_ponencia: nombre, 
+            fecha_programada: fechaStr 
+          });
         }
       });
 
-      if (ponencias.length === 0) throw new Error("No se encontraron ponencias válidas.");
+      if (ponencias.length === 0) {
+        throw new Error("No se encontraron ponencias válidas.");
+      }
 
-      const { error } = await supabase.from("ponencias").upsert(ponencias);
+      const { error } = await supabase
+        .from("ponencias")
+        .upsert(ponencias);
+        
       if (error) throw error;
 
-      setMensaje({ tipo: "exito", texto: `Se procesaron inteligentemente ${ponencias.length} ponencias.` });
+      setMensaje({ tipo: "exito", texto: `Se cargaron ${ponencias.length} ponencias.` });
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: `Error: ${error.message}` });
     } finally {
@@ -151,29 +162,27 @@ export default function DataUploader() {
   };
 
   return (
-    <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-      
-      {/* Alertas */}
+    <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-6 relative">
+      <div className="absolute top-4 right-6 z-20 bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold shadow-md">
+        Módulo: {moduloSeleccionado}
+      </div>
+
       {mensaje && (
-        <div className={`p-4 rounded-xl mb-6 flex items-center space-x-2 ${
-          mensaje.tipo === "error" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
-        }`}>
+        <div className={`mt-8 p-4 rounded-xl mb-6 flex items-center space-x-2 ${mensaje.tipo === "error" ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}`}>
           {mensaje.tipo === "error" ? <AlertCircle className="w-5 h-5 shrink-0" /> : <CheckCircle className="w-5 h-5 shrink-0" />}
           <span className="font-bold text-sm">{mensaje.texto}</span>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        
-        {/* Card: Participantes */}
-        <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#c81474] transition-colors">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+        {/* Card Participantes */}
+        <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#c81474]">
           <div className="bg-pink-100 p-4 rounded-full mb-4">
             <Users className="w-8 h-8 text-[#c81474]" />
           </div>
-          <h3 className="text-lg font-bold text-gray-800 mb-2">Base de Datos Participantes</h3>
-          <p className="text-gray-500 text-xs mb-4">
-            Lectura inteligente habilitada. El sistema detectará las columnas obligatorias sin importar el orden:<br/>
-            <strong>CORREO ELECTRÓNICO, NOMBRE, APELLIDOS, ROL, TELÉFONO MÓVIL, NÚMERO DE DOCUMENTO</strong>
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Base de Datos Participantes</h3>
+          <p className="text-gray-600 text-xs mb-4">
+            Los participantes se cargarán exclusivamente para el módulo: <strong>{moduloSeleccionado}</strong>.
           </p>
           <input 
             type="file" 
@@ -183,54 +192,52 @@ export default function DataUploader() {
             onChange={procesarParticipantes}
           />
           <button 
-            onClick={() => fileInputParticipantes.current?.click()}
-            disabled={cargando !== null}
-            className="w-full bg-[#c81474] hover:bg-pink-800 text-white font-bold py-3 px-4 rounded-xl transition-colors shadow-md flex items-center justify-center space-x-2 disabled:opacity-70"
+            onClick={() => fileInputParticipantes.current?.click()} 
+            disabled={cargando !== null} 
+            className="w-full bg-[#c81474] hover:bg-pink-800 text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center space-x-2 disabled:opacity-70"
           >
             {cargando === "participantes" ? (
               <span className="animate-pulse">Procesando...</span>
             ) : (
               <>
                 <UploadCloud className="w-5 h-5" />
-                <span>Subir Archivo Excel</span>
+                <span>Subir Participantes</span>
               </>
             )}
           </button>
         </div>
 
-        {/* Card: Ponencias */}
-        <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#311b42] transition-colors">
-          <div className="bg-purple-100 p-4 rounded-full mb-4">
-            <FileText className="w-8 h-8 text-[#311b42]" />
+        {/* Card Ponencias (Solo visible si el módulo es Ponencias) */}
+        {moduloSeleccionado === "Ponencias" && (
+          <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#311b42]">
+            <div className="bg-purple-100 p-4 rounded-full mb-4">
+              <FileText className="w-8 h-8 text-[#311b42]" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Cronograma de Ponencias</h3>
+            <p className="text-gray-600 text-xs mb-4">Solo disponible para el módulo central de Ponencias.</p>
+            <input 
+              type="file" 
+              accept=".xlsx, .xls" 
+              className="hidden" 
+              ref={fileInputPonencias} 
+              onChange={procesarPonencias}
+            />
+            <button 
+              onClick={() => fileInputPonencias.current?.click()} 
+              disabled={cargando !== null} 
+              className="w-full bg-[#311b42] hover:bg-purple-950 text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center space-x-2 disabled:opacity-70"
+            >
+              {cargando === "ponencias" ? (
+                <span className="animate-pulse">Procesando...</span>
+              ) : (
+                <>
+                  <UploadCloud className="w-5 h-5" />
+                  <span>Subir Cronograma</span>
+                </>
+              )}
+            </button>
           </div>
-          <h3 className="text-lg font-bold text-gray-800 mb-2">Cronograma de Ponencias</h3>
-          <p className="text-gray-500 text-xs mb-4">
-            Lectura inteligente habilitada. El sistema detectará las columnas obligatorias sin importar el orden:<br/>
-            <strong>ID envío, Título, Fecha (DD/MM/YYYY o YYYY-MM-DD)</strong>
-          </p>
-          <input 
-            type="file" 
-            accept=".xlsx, .xls" 
-            className="hidden" 
-            ref={fileInputPonencias} 
-            onChange={procesarPonencias}
-          />
-          <button 
-            onClick={() => fileInputPonencias.current?.click()}
-            disabled={cargando !== null}
-            className="w-full bg-[#311b42] hover:bg-purple-950 text-white font-bold py-3 px-4 rounded-xl transition-colors shadow-md flex items-center justify-center space-x-2 disabled:opacity-70"
-          >
-            {cargando === "ponencias" ? (
-              <span className="animate-pulse">Procesando...</span>
-            ) : (
-              <>
-                <UploadCloud className="w-5 h-5" />
-                <span>Subir Archivo Excel</span>
-              </>
-            )}
-          </button>
-        </div>
-
+        )}
       </div>
     </div>
   );

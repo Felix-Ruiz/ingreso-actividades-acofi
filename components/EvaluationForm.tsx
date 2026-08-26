@@ -55,7 +55,6 @@ export default function EvaluationForm() {
     const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 
     try {
-      // 1. Validar existencia del usuario y obtener su rol
       const { data: usuario, error: errUsuario } = await supabase
         .from("base_datos_participantes")
         .select("nombre, rol")
@@ -64,7 +63,6 @@ export default function EvaluationForm() {
 
       if (!usuario || errUsuario) throw new Error(t.uNotExist);
 
-      // 2. Si el rol NO es Moderador, exigimos el check-in diario
       if (usuario.rol !== "Moderador") {
         const { data: checkin } = await supabase
           .from("check_ins")
@@ -77,7 +75,6 @@ export default function EvaluationForm() {
         if (!checkin) throw new Error(t.noCheckin);
       }
 
-      // 3. Validar Ponencia y Fecha
       const { data: ponencia, error: errPonencia } = await supabase
         .from("ponencias")
         .select("fecha_programada")
@@ -87,7 +84,6 @@ export default function EvaluationForm() {
       if (!ponencia || errPonencia) throw new Error(t.pNotExist);
       if (ponencia.fecha_programada !== todayStr) throw new Error(t.dateInvalid);
 
-      // 4. Validar si ya votó
       const { data: evaluacionPrevia } = await supabase
         .from("evaluaciones")
         .select("id")
@@ -97,7 +93,6 @@ export default function EvaluationForm() {
 
       if (evaluacionPrevia) throw new Error(t.already);
 
-      // 5. Registrar Evaluación
       const { error: errInsert } = await supabase
         .from("evaluaciones")
         .insert([
@@ -105,12 +100,11 @@ export default function EvaluationForm() {
             correo_usuario: correoLimpio,
             codigo_ponencia: codigoLimpio,
             calificacion: Number(rating),
-          },
+          }
         ]);
 
       if (errInsert) throw new Error(t.sysError);
 
-      // Éxito
       setMensaje({ tipo: "exito", texto: `${t.success}${usuario.nombre}` });
       setPaperCode("");
       setRating("");
@@ -124,7 +118,6 @@ export default function EvaluationForm() {
 
   return (
     <div className="relative z-10 flex flex-col items-center pt-20 px-4 w-full max-w-md mx-auto">
-      {/* Switch de Idiomas */}
       <div className="fixed top-6 right-6 z-20">
         <div className="flex bg-white rounded-full shadow-md p-1">
           <button
@@ -146,28 +139,26 @@ export default function EvaluationForm() {
         </div>
       </div>
 
-      {/* Logo Real (Imagen desde public/logo.png) */}
       <div className="w-24 h-24 bg-white rounded-full shadow-lg flex items-center justify-center mb-6 overflow-hidden">
         <img src="/logo.png" alt="Logo Evento" className="w-16 h-16 object-contain" />
       </div>
 
-      {/* Título */}
       <h1 className="text-3xl font-extrabold text-[#c81474] mb-6 text-center drop-shadow-sm">
         {t.title}
       </h1>
 
-      {/* Alertas de Sistema */}
       {mensaje && (
         <div 
           className={`w-full p-4 mb-4 rounded-xl shadow-sm text-sm font-bold text-center ${
-            mensaje.tipo === "error" ? "bg-red-100 text-red-800 border border-red-200" : "bg-green-100 text-green-800 border border-green-200"
+            mensaje.tipo === "error" 
+              ? "bg-red-100 text-red-800 border border-red-200" 
+              : "bg-green-100 text-green-800 border border-green-200"
           }`}
         >
           {mensaje.texto}
         </div>
       )}
 
-      {/* Formulario */}
       <form onSubmit={handleSubmit} className="w-full space-y-4">
         <div className="relative">
           <input

@@ -6,12 +6,11 @@ import { Edit2, Save, X, RefreshCw, Search } from "lucide-react";
 
 type TabType = "participantes" | "ponencias" | "checkins";
 
-export default function DatabaseManager() {
+export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccionado: string }) {
   const [activeTab, setActiveTab] = useState<TabType>("participantes");
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
 
@@ -23,13 +22,20 @@ export default function DatabaseManager() {
       if (activeTab === "ponencias") table = "ponencias";
       if (activeTab === "checkins") table = "check_ins";
 
-      const { data: result, error } = await supabase
+      let query = supabase
         .from(table)
-        .select(activeTab === "checkins" ? "*, base_datos_participantes(nombre, apellido)" : "*")
+        .select(activeTab === "checkins" ? "*, base_datos_participantes(nombre, apellido)" : "*");
+      
+      if (activeTab !== "ponencias") {
+        query = query.eq("modulo", moduloSeleccionado);
+      }
+      
+      const { data: result, error } = await query
         .order(activeTab === "ponencias" ? "fecha_programada" : "created_at", { ascending: false })
         .limit(200);
-
+        
       if (error) throw error;
+      
       setData(result || []);
     } catch (error) {
       console.error("Error cargando datos:", error);
@@ -38,25 +44,30 @@ export default function DatabaseManager() {
     }
   };
 
-  useEffect(() => {
-    fetchData();
-    setSearchTerm("");
-    setEditingId(null);
-  }, [activeTab]);
+  useEffect(() => { 
+    fetchData(); 
+    setSearchTerm(""); 
+    setEditingId(null); 
+  }, [activeTab, moduloSeleccionado]);
 
-  const iniciarEdicion = (item: any, idKey: string) => {
-    setEditingId(item[idKey]);
-    setEditForm({ ...item });
+  const iniciarEdicion = (item: any, idKey: string) => { 
+    setEditingId(item[idKey]); 
+    setEditForm({ ...item }); 
   };
 
   const guardarEdicion = async (idKey: string, table: string) => {
     try {
-      const { error } = await supabase.from(table).update(editForm).eq(idKey, editingId);
+      const { error } = await supabase
+        .from(table)
+        .update(editForm)
+        .eq(idKey, editingId);
+        
       if (error) throw error;
+      
       setEditingId(null);
       fetchData(); 
-    } catch (error) {
-      console.error("Error al guardar:", error);
+    } catch (error) { 
+      console.error("Error al guardar:", error); 
     }
   };
 
@@ -65,12 +76,40 @@ export default function DatabaseManager() {
   );
 
   return (
-    <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+    <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden relative">
+      <div className="absolute top-4 right-4 z-20 bg-emerald-600 text-white px-3 py-1 rounded-full text-xs font-bold shadow-md">
+        Datos de: {moduloSeleccionado}
+      </div>
       
-      <div className="flex border-b border-gray-200">
-        <button onClick={() => setActiveTab("participantes")} className={`flex-1 py-4 text-sm font-bold transition-colors ${activeTab === "participantes" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-900 hover:bg-gray-100"}`}>Participantes</button>
-        <button onClick={() => setActiveTab("ponencias")} className={`flex-1 py-4 text-sm font-bold transition-colors ${activeTab === "ponencias" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-900 hover:bg-gray-100"}`}>Ponencias</button>
-        <button onClick={() => setActiveTab("checkins")} className={`flex-1 py-4 text-sm font-bold transition-colors ${activeTab === "checkins" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-900 hover:bg-gray-100"}`}>Check-ins (Historial)</button>
+      <div className="flex border-b border-gray-200 mt-10">
+        <button 
+          onClick={() => setActiveTab("participantes")} 
+          className={`flex-1 py-4 text-sm font-bold transition-colors ${
+            activeTab === "participantes" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-900 hover:bg-gray-100"
+          }`}
+        >
+          Participantes
+        </button>
+        
+        {moduloSeleccionado === "Ponencias" && (
+          <button 
+            onClick={() => setActiveTab("ponencias")} 
+            className={`flex-1 py-4 text-sm font-bold transition-colors ${
+              activeTab === "ponencias" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-900 hover:bg-gray-100"
+            }`}
+          >
+            Ponencias
+          </button>
+        )}
+        
+        <button 
+          onClick={() => setActiveTab("checkins")} 
+          className={`flex-1 py-4 text-sm font-bold transition-colors ${
+            activeTab === "checkins" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-900 hover:bg-gray-100"
+          }`}
+        >
+          Historial Check-ins
+        </button>
       </div>
 
       <div className="p-4 bg-white border-b border-gray-100 flex justify-between items-center">
@@ -79,12 +118,15 @@ export default function DatabaseManager() {
           <input 
             type="text" 
             placeholder="Filtrar..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 placeholder-gray-500"
+            value={searchTerm} 
+            onChange={(e) => setSearchTerm(e.target.value)} 
+            className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 placeholder-gray-500" 
           />
         </div>
-        <button onClick={fetchData} className="ml-4 p-2 text-gray-600 hover:text-[#c81474]" title="Actualizar">
+        <button 
+          onClick={fetchData} 
+          className="ml-4 p-2 text-gray-600 hover:text-[#c81474]"
+        >
           <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
@@ -94,86 +136,174 @@ export default function DatabaseManager() {
           <thead className="bg-gray-100 text-gray-900 font-extrabold border-b border-gray-200">
             <tr>
               {activeTab === "participantes" && (
-                <><th className="px-4 py-3">Nombre Completo</th><th className="px-4 py-3">Correo</th><th className="px-4 py-3">Rol</th><th className="px-4 py-3">Documento</th><th className="px-4 py-3 text-right">Acciones</th></>
+                <>
+                  <th className="px-4 py-3">Nombre Completo</th>
+                  <th className="px-4 py-3">Correo</th>
+                  <th className="px-4 py-3">Rol</th>
+                  <th className="px-4 py-3">Documento</th>
+                  <th className="px-4 py-3 text-right">Acciones</th>
+                </>
               )}
               {activeTab === "ponencias" && (
-                <><th className="px-4 py-3">Código</th><th className="px-4 py-3">Título</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3 text-right">Acciones</th></>
+                <>
+                  <th className="px-4 py-3">Código</th>
+                  <th className="px-4 py-3">Título</th>
+                  <th className="px-4 py-3">Fecha</th>
+                  <th className="px-4 py-3 text-right">Acciones</th>
+                </>
               )}
               {activeTab === "checkins" && (
-                <><th className="px-4 py-3">Participante</th><th className="px-4 py-3">Correo</th><th className="px-4 py-3">Módulo</th><th className="px-4 py-3">Fecha</th></>
+                <>
+                  <th className="px-4 py-3">Participante</th>
+                  <th className="px-4 py-3">Correo</th>
+                  <th className="px-4 py-3">Fecha/Hora</th>
+                  <th className="px-4 py-3">Estado</th>
+                </>
               )}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {filteredData.map((item, index) => (
               <tr key={index} className="hover:bg-gray-50">
+                {/* Tabla de Participantes */}
                 {activeTab === "participantes" && (
                   <>
                     <td className="px-4 py-3 font-bold text-gray-900">
                       {editingId === item.correo ? (
                         <div className="flex space-x-1">
-                          <input type="text" value={editForm.nombre || ""} onChange={e => setEditForm({...editForm, nombre: e.target.value})} className="w-24 border border-gray-400 p-1 rounded text-gray-900" />
-                          <input type="text" value={editForm.apellido || ""} onChange={e => setEditForm({...editForm, apellido: e.target.value})} className="w-24 border border-gray-400 p-1 rounded text-gray-900" />
+                          <input 
+                            type="text" 
+                            value={editForm.nombre || ""} 
+                            onChange={e => setEditForm({...editForm, nombre: e.target.value})} 
+                            className="w-24 border border-gray-400 p-1 rounded text-gray-900" 
+                          />
+                          <input 
+                            type="text" 
+                            value={editForm.apellido || ""} 
+                            onChange={e => setEditForm({...editForm, apellido: e.target.value})} 
+                            className="w-24 border border-gray-400 p-1 rounded text-gray-900" 
+                          />
                         </div>
-                      ) : (`${item.nombre || "-"} ${item.apellido || ""}`)}
+                      ) : (
+                        `${item.nombre || "-"} ${item.apellido || ""}`
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-700">{item.correo}</td>
                     <td className="px-4 py-3">
                       {editingId === item.correo ? (
-                        <select value={editForm.rol} onChange={e => setEditForm({...editForm, rol: e.target.value})} className="border border-gray-400 p-1 rounded text-gray-900">
+                        <select 
+                          value={editForm.rol} 
+                          onChange={e => setEditForm({...editForm, rol: e.target.value})} 
+                          className="border border-gray-400 p-1 rounded text-gray-900"
+                        >
                           <option value="Participante">Participante</option>
                           <option value="Moderador">Moderador</option>
                         </select>
-                      ) : (<span className="bg-pink-100 text-[#c81474] px-2 py-1 rounded-full text-xs font-bold">{item.rol || "Participante"}</span>)}
+                      ) : (
+                        <span className="bg-pink-100 text-[#c81474] px-2 py-1 rounded-full text-xs font-bold">
+                          {item.rol || "Participante"}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       {editingId === item.correo ? (
-                        <input type="text" value={editForm.numero_documento || ""} onChange={e => setEditForm({...editForm, numero_documento: e.target.value})} className="w-full border border-gray-400 p-1 rounded text-gray-900" />
-                      ) : (item.numero_documento || "-")}
+                        <input 
+                          type="text" 
+                          value={editForm.numero_documento || ""} 
+                          onChange={e => setEditForm({...editForm, numero_documento: e.target.value})} 
+                          className="w-full border border-gray-400 p-1 rounded text-gray-900" 
+                        />
+                      ) : (
+                        item.numero_documento || "-"
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {editingId === item.correo ? (
                         <div className="flex justify-end space-x-2">
-                          <button onClick={() => guardarEdicion("correo", "base_datos_participantes")} className="text-green-600"><Save className="w-5 h-5"/></button>
-                          <button onClick={() => setEditingId(null)} className="text-red-500"><X className="w-5 h-5"/></button>
+                          <button onClick={() => guardarEdicion("correo", "base_datos_participantes")} className="text-green-600">
+                            <Save className="w-5 h-5"/>
+                          </button>
+                          <button onClick={() => setEditingId(null)} className="text-red-500">
+                            <X className="w-5 h-5"/>
+                          </button>
                         </div>
-                      ) : (<button onClick={() => iniciarEdicion(item, "correo")} className="text-gray-500 hover:text-[#311b42]"><Edit2 className="w-5 h-5"/></button>)}
+                      ) : (
+                        <button onClick={() => iniciarEdicion(item, "correo")} className="text-gray-500 hover:text-[#311b42]">
+                          <Edit2 className="w-5 h-5"/>
+                        </button>
+                      )}
                     </td>
                   </>
                 )}
-
+                
+                {/* Tabla de Ponencias */}
                 {activeTab === "ponencias" && (
                   <>
-                    <td className="px-4 py-3 font-bold text-gray-900">{item.codigo_ponencia || "-"}</td>
-                    <td className="px-4 py-3 text-gray-900">
-                      {editingId === item.codigo_ponencia ? (
-                        <input type="text" value={editForm.nombre_ponencia || ""} onChange={e => setEditForm({...editForm, nombre_ponencia: e.target.value})} className="w-full border border-gray-400 p-1 rounded text-gray-900" />
-                      ) : (item.nombre_ponencia || "-")}
+                    <td className="px-4 py-3 font-bold text-gray-900">
+                      {item.codigo_ponencia || "-"}
                     </td>
                     <td className="px-4 py-3 text-gray-900">
                       {editingId === item.codigo_ponencia ? (
-                        <input type="date" value={editForm.fecha_programada || ""} onChange={e => setEditForm({...editForm, fecha_programada: e.target.value})} className="border border-gray-400 p-1 rounded text-gray-900" />
-                      ) : (item.fecha_programada || "-")}
+                        <input 
+                          type="text" 
+                          value={editForm.nombre_ponencia || ""} 
+                          onChange={e => setEditForm({...editForm, nombre_ponencia: e.target.value})} 
+                          className="w-full border border-gray-400 p-1 rounded text-gray-900" 
+                        />
+                      ) : (
+                        item.nombre_ponencia || "-"
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-900 whitespace-nowrap">
+                      {editingId === item.codigo_ponencia ? (
+                        <input 
+                          type="date" 
+                          value={editForm.fecha_programada || ""} 
+                          onChange={e => setEditForm({...editForm, fecha_programada: e.target.value})} 
+                          className="border border-gray-400 p-1 rounded text-gray-900" 
+                        />
+                      ) : (
+                        item.fecha_programada || "-"
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {editingId === item.codigo_ponencia ? (
                         <div className="flex justify-end space-x-2">
-                          <button onClick={() => guardarEdicion("codigo_ponencia", "ponencias")} className="text-green-600"><Save className="w-5 h-5"/></button>
-                          <button onClick={() => setEditingId(null)} className="text-red-500"><X className="w-5 h-5"/></button>
+                          <button onClick={() => guardarEdicion("codigo_ponencia", "ponencias")} className="text-green-600">
+                            <Save className="w-5 h-5"/>
+                          </button>
+                          <button onClick={() => setEditingId(null)} className="text-red-500">
+                            <X className="w-5 h-5"/>
+                          </button>
                         </div>
-                      ) : (<button onClick={() => iniciarEdicion(item, "codigo_ponencia")} className="text-gray-500 hover:text-[#311b42]"><Edit2 className="w-5 h-5"/></button>)}
+                      ) : (
+                        <button onClick={() => iniciarEdicion(item, "codigo_ponencia")} className="text-gray-500 hover:text-[#311b42]">
+                          <Edit2 className="w-5 h-5"/>
+                        </button>
+                      )}
                     </td>
                   </>
                 )}
-
+                
+                {/* Tabla de Check-ins */}
                 {activeTab === "checkins" && (
                   <>
                     <td className="px-4 py-3 font-bold text-gray-900">
-                      {item.base_datos_participantes ? `${item.base_datos_participantes.nombre || ""} ${item.base_datos_participantes.apellido || ""}` : "-"}
+                      {item.base_datos_participantes 
+                        ? `${item.base_datos_participantes.nombre || ""} ${item.base_datos_participantes.apellido || ""}` 
+                        : "-"}
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{item.correo_usuario || "-"}</td>
-                    <td className="px-4 py-3 text-gray-900 font-bold">{item.modulo || "Ponencias"}</td>
-                    <td className="px-4 py-3 text-gray-700">{item.dia_evento || "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">
+                      {item.correo_usuario || "-"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
+                      {new Date(item.created_at).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-bold capitalize">
+                        {item.estado}
+                      </span>
+                    </td>
                   </>
                 )}
               </tr>
