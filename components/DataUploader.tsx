@@ -23,35 +23,62 @@ export default function DataUploader() {
       const buffer = await file.arrayBuffer();
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(buffer);
-      const worksheet = workbook.worksheets[0]; // Lee la primera hoja
+      const worksheet = workbook.worksheets[0];
 
       const participantes: any[] = [];
+      const headerMap: { [key: string]: number } = {};
 
-      // Empezamos desde la fila 2 asumiendo que la 1 tiene encabezados
+      // 1. Mapeo Inteligente de Columnas (Lee la primera fila)
+      const headerRow = worksheet.getRow(1);
+      headerRow.eachCell((cell, colNumber) => {
+        const headerName = cell.text?.trim().toUpperCase();
+        if (headerName === "CORREO ELECTRÓNICO") headerMap.correo = colNumber;
+        else if (headerName === "NOMBRE") headerMap.nombre = colNumber;
+        else if (headerName === "APELLIDOS") headerMap.apellido = colNumber;
+        else if (headerName === "ROL") headerMap.rol = colNumber;
+        else if (headerName === "TELÉFONO MÓVIL") headerMap.telefono = colNumber;
+        else if (headerName === "NÚMERO DE DOCUMENTO") headerMap.documento = colNumber;
+      });
+
+      // Validar columnas estrictamente necesarias
+      if (!headerMap.correo || !headerMap.nombre || !headerMap.apellido) {
+        throw new Error("El archivo no contiene las columnas obligatorias exactas: CORREO ELECTRÓNICO, NOMBRE, APELLIDOS.");
+      }
+
+      // 2. Extracción dinámica de datos
       worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber === 1) return;
+        if (rowNumber === 1) return; // Saltamos los encabezados
 
-        const correo = row.getCell(1).text?.trim().toLowerCase();
-        const nombre = row.getCell(2).text?.trim();
-        const apellido = row.getCell(3).text?.trim();
-        const rol = row.getCell(4).text?.trim() || "Participante";
-        const organizacion = row.getCell(5).text?.trim() || null;
-        const telefono = row.getCell(6).text?.trim() || null;
+        const correo = row.getCell(headerMap.correo).text?.trim().toLowerCase();
+        const nombre = row.getCell(headerMap.nombre).text?.trim();
+        const apellido = row.getCell(headerMap.apellido).text?.trim();
+        
+        // Campos opcionales (dependen de si la columna existe en el excel)
+        const rol = headerMap.rol ? (row.getCell(headerMap.rol).text?.trim() || "Participante") : "Participante";
+        const telefono = headerMap.telefono ? row.getCell(headerMap.telefono).text?.trim() : null;
+        const documento = headerMap.documento ? row.getCell(headerMap.documento).text?.trim() : null;
 
         if (correo && nombre && apellido) {
-          participantes.push({ correo, nombre, apellido, rol, organizacion, telefono });
+          participantes.push({ 
+            correo, 
+            nombre, 
+            apellido, 
+            rol, 
+            telefono, 
+            numero_documento: documento 
+          });
         }
       });
 
-      if (participantes.length === 0) throw new Error("No se encontraron registros válidos. Verifica las columnas.");
+      if (participantes.length === 0) throw new Error("No se encontraron registros válidos de participantes.");
 
-      // Insertar o actualizar (upsert) masivamente
+      // 3. Inserción o actualización masiva en Supabase
       const { error } = await supabase.from("base_datos_participantes").upsert(participantes);
       if (error) throw error;
 
-      setMensaje({ tipo: "exito", texto: `Se cargaron/actualizaron ${participantes.length} participantes con éxito.` });
+      setMensaje({ tipo: "exito", texto: `Se procesaron inteligentemente ${participantes.length} participantes con éxito.` });
     } catch (error: any) {
-      setMensaje({ tipo: "error", texto: `Error procesando el archivo: ${error.message}` });
+      setMensaje({ tipo: "error", texto: `Error: ${error.message}` });
     } finally {
       setCargando(null);
       if (fileInputParticipantes.current) fileInputParticipantes.current.value = "";
@@ -85,10 +112,8 @@ export default function DataUploader() {
         if (fecha instanceof Date) {
           fechaStr = fecha.toISOString().split("T")[0];
         } else if (typeof fecha === "string") {
-          // Intentar parsear si viene como texto
           const partes = fecha.split("/");
           if (partes.length === 3) {
-            // Asume formato DD/MM/YYYY o MM/DD/YYYY dependiendo del Excel. Se fuerza estándar ISO.
             fechaStr = new Date(fecha).toISOString().split("T")[0];
           } else {
             fechaStr = fecha;
@@ -136,8 +161,8 @@ export default function DataUploader() {
           </div>
           <h3 className="text-lg font-bold text-gray-800 mb-2">Base de Datos Participantes</h3>
           <p className="text-gray-500 text-xs mb-4">
-            Columnas esperadas (sin importar nombre, en este orden):<br/>
-            <strong>1: Correo, 2: Nombre, 3: Apellido, 4: Rol, 5: Org, 6: Tel</strong>
+            Lectura inteligente habilitada. El sistema detectará las columnas obligatorias sin importar el orden:<br/>
+            <strong>CORREO ELECTRÓNICO, NOMBRE, APELLIDOS, ROL, TELÉFONO MÓVIL, NÚMERO DE DOCUMENTO</strong>
           </p>
           <input 
             type="file" 
