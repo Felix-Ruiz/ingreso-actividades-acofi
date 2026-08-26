@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Edit2, Save, X, RefreshCw, Search } from "lucide-react";
+import { Edit2, Save, X, RefreshCw, Search, Trash2 } from "lucide-react";
 
 type TabType = "participantes" | "ponencias" | "checkins";
 
@@ -13,15 +13,18 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   const [searchTerm, setSearchTerm] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
+  
+  // Nuevo Estado para selección múltiple
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const fetchData = async () => {
     setLoading(true);
+    setSelectedIds(new Set()); // Limpiar selección al recargar
     try {
       let table = "";
       let orderCol = "";
       let isAscending = true;
 
-      // Asignamos columnas seguras que sabemos que existen en tu BD
       if (activeTab === "participantes") {
         table = "base_datos_participantes";
         orderCol = "nombre";
@@ -44,11 +47,10 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
       
       const { data: result, error } = await query
         .order(orderCol, { ascending: isAscending })
-        .limit(200);
+        .limit(500); // Aumentamos límite para facilitar eliminación
         
       if (error) throw error;
       
-      // Mapeo manual de nombres para check-ins (evita errores de llaves foráneas en Supabase)
       if (activeTab === "checkins" && result && result.length > 0) {
         const correos = result.map(r => r.correo_usuario);
         const { data: participantesData } = await supabase
@@ -112,6 +114,64 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     JSON.stringify(item).toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Funciones de Selección Múltiple
+  const getIdKey = () => {
+    if (activeTab === "participantes") return "correo";
+    if (activeTab === "ponencias") return "codigo_ponencia";
+    return "id";
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredData.length && filteredData.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      const newSet = new Set<string>();
+      const idKey = getIdKey();
+      filteredData.forEach(item => newSet.add(item[idKey]));
+      setSelectedIds(newSet);
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedIds(newSet);
+  };
+
+  const eliminarSeleccionados = async () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`¿Estás seguro de que deseas eliminar permanentemente ${selectedIds.size} registro(s)?`)) return;
+
+    setLoading(true);
+    try {
+      let table = "";
+      if (activeTab === "participantes") table = "base_datos_participantes";
+      if (activeTab === "ponencias") table = "ponencias";
+      if (activeTab === "checkins") table = "check_ins";
+
+      const idKey = getIdKey();
+      const idsArray = Array.from(selectedIds);
+
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .in(idKey, idsArray);
+
+      if (error) throw error;
+      
+      alert(`${selectedIds.size} registros eliminados con éxito.`);
+      fetchData();
+    } catch (error: any) {
+      alert("Error al eliminar: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden relative">
       <div className="absolute top-4 right-4 z-20 bg-emerald-600 text-white px-3 py-1 rounded-full text-xs font-bold shadow-md">
@@ -149,8 +209,8 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
         </button>
       </div>
 
-      <div className="p-4 bg-white border-b border-gray-100 flex justify-between items-center">
-        <div className="relative w-full max-w-sm">
+      <div className="p-4 bg-white border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div className="relative w-full sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input 
             type="text" 
@@ -160,18 +220,38 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
             className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 placeholder-gray-500" 
           />
         </div>
-        <button 
-          onClick={fetchData} 
-          className="ml-4 p-2 text-gray-600 hover:text-[#c81474]"
-        >
-          <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
-        </button>
+        
+        <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
+          {selectedIds.size > 0 && (
+            <button 
+              onClick={eliminarSeleccionados}
+              className="flex items-center space-x-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Eliminar ({selectedIds.size})</span>
+            </button>
+          )}
+          <button 
+            onClick={fetchData} 
+            className="p-2 text-gray-600 hover:text-[#c81474] transition-colors bg-gray-100 rounded-lg"
+          >
+            <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-100 text-gray-900 font-extrabold border-b border-gray-200">
             <tr>
+              <th className="px-4 py-3 w-10">
+                <input 
+                  type="checkbox" 
+                  checked={filteredData.length > 0 && selectedIds.size === filteredData.length}
+                  onChange={toggleSelectAll}
+                  className="w-4 h-4 rounded text-[#c81474] focus:ring-[#c81474]"
+                />
+              </th>
               {activeTab === "participantes" && (
                 <>
                   <th className="px-4 py-3">Nombre Completo</th>
@@ -200,8 +280,21 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {filteredData.map((item, index) => (
-              <tr key={index} className="hover:bg-gray-50">
+            {filteredData.map((item, index) => {
+              const rowId = item[getIdKey()];
+              const isSelected = selectedIds.has(rowId);
+              
+              return (
+              <tr key={index} className={`hover:bg-gray-50 transition-colors ${isSelected ? 'bg-pink-50' : ''}`}>
+                <td className="px-4 py-3">
+                  <input 
+                    type="checkbox" 
+                    checked={isSelected}
+                    onChange={() => toggleSelectOne(rowId)}
+                    className="w-4 h-4 rounded text-[#c81474] focus:ring-[#c81474]"
+                  />
+                </td>
+                
                 {/* Tabla de Participantes */}
                 {activeTab === "participantes" && (
                   <>
@@ -342,12 +435,12 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                   </>
                 )}
               </tr>
-            ))}
+            )})}
             
             {filteredData.length === 0 && !loading && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
-                  No se encontraron registros en la base de datos para este evento.
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                  No se encontraron registros válidos para este módulo.
                 </td>
               </tr>
             )}

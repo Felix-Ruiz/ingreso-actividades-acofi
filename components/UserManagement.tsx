@@ -7,7 +7,9 @@ import { UserPlus, Trash2, ShieldAlert, ShieldCheck } from "lucide-react";
 export default function UserManagement() {
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
+  
   const [nuevoCorreo, setNuevoCorreo] = useState("");
+  const [nuevoPassword, setNuevoPassword] = useState("");
   const [nuevoRol, setNuevoRol] = useState<"Admin" | "Master">("Admin");
   const [procesando, setProcesando] = useState(false);
 
@@ -17,7 +19,7 @@ export default function UserManagement() {
       const { data, error } = await supabase
         .from("staff_roles")
         .select("*")
-        .order("rol", { ascending: false }); // Muestra los Master primero
+        .order("rol", { ascending: false }); 
       
       if (error) throw error;
       setUsuarios(data || []);
@@ -34,22 +36,39 @@ export default function UserManagement() {
 
   const agregarUsuario = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nuevoCorreo.trim()) return;
+    if (!nuevoCorreo.trim() || !nuevoPassword.trim()) {
+      alert("Debes ingresar un correo y una contraseña.");
+      return;
+    }
 
     setProcesando(true);
     const correoLimpio = nuevoCorreo.trim().toLowerCase();
 
     try {
-      const { error } = await supabase
+      // 1. Crear el usuario en la Autenticación de Supabase
+      const { error: authError } = await supabase.auth.signUp({
+        email: correoLimpio,
+        password: nuevoPassword,
+      });
+
+      // Ignoramos el error si el usuario ya existe en Auth, para poder actualizarle su rol
+      if (authError && !authError.message.includes("already registered")) {
+        throw new Error("Error creando credenciales: " + authError.message);
+      }
+
+      // 2. Guardar el rol en nuestra tabla de permisos
+      const { error: roleError } = await supabase
         .from("staff_roles")
         .upsert([{ correo: correoLimpio, rol: nuevoRol }]);
 
-      if (error) throw error;
+      if (roleError) throw roleError;
 
       setNuevoCorreo("");
+      setNuevoPassword("");
       setNuevoRol("Admin");
       cargarUsuarios();
-      alert(`Usuario ${correoLimpio} agregado exitosamente como ${nuevoRol}.`);
+      
+      alert(`Usuario ${correoLimpio} agregado exitosamente como ${nuevoRol}. Puede iniciar sesión con la contraseña asignada.`);
     } catch (error: any) {
       alert("Error al agregar usuario: " + error.message);
     } finally {
@@ -77,7 +96,7 @@ export default function UserManagement() {
     <div className="w-full space-y-6">
       {/* Formulario de Alta */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+        <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
           <UserPlus className="w-5 h-5 mr-2 text-[#311b42]" />
           Autorizar Nuevo Staff
         </h3>
@@ -86,35 +105,41 @@ export default function UserManagement() {
             type="email"
             value={nuevoCorreo}
             onChange={(e) => setNuevoCorreo(e.target.value)}
-            placeholder="Correo del miembro del equipo..."
-            className="flex-1 border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-[#311b42]"
+            placeholder="Correo del equipo..."
+            className="flex-1 border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-[#311b42] text-gray-900 placeholder-gray-500"
+            required
+          />
+          <input
+            type="text"
+            value={nuevoPassword}
+            onChange={(e) => setNuevoPassword(e.target.value)}
+            placeholder="Asignar contraseña..."
+            minLength={6}
+            className="flex-1 border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-[#311b42] text-gray-900 placeholder-gray-500"
             required
           />
           <select
             value={nuevoRol}
             onChange={(e) => setNuevoRol(e.target.value as "Admin" | "Master")}
-            className="border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-[#311b42] bg-white font-medium text-gray-700"
+            className="border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-[#311b42] bg-white font-medium text-gray-900"
           >
-            <option value="Admin">Administrador (Solo lectura y escaneo)</option>
-            <option value="Master">Master (Acceso total al sistema)</option>
+            <option value="Admin">Administrador</option>
+            <option value="Master">Master</option>
           </select>
           <button
             type="submit"
             disabled={procesando}
             className="bg-[#311b42] hover:bg-purple-950 text-white font-bold px-6 py-3 rounded-xl disabled:opacity-70 transition-colors"
           >
-            {procesando ? "Guardando..." : "Autorizar"}
+            {procesando ? "Guardando..." : "Crear Staff"}
           </button>
         </form>
-        <p className="text-xs text-gray-500 mt-3">
-          * Una vez autorizado, el usuario debe registrarse en la pantalla de Login con este mismo correo para poder acceder.
-        </p>
       </div>
 
       {/* Lista de Usuarios */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-4 bg-gray-50 border-b border-gray-200">
-          <h3 className="font-bold text-gray-700">Equipo Autorizado</h3>
+          <h3 className="font-bold text-gray-900">Equipo Autorizado</h3>
         </div>
         {cargando ? (
           <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Cargando equipo...</div>
@@ -129,8 +154,8 @@ export default function UserManagement() {
                     <ShieldAlert className="w-5 h-5 text-blue-600" />
                   )}
                   <div>
-                    <p className="font-bold text-gray-800">{user.correo}</p>
-                    <p className="text-xs text-gray-500 font-medium">Rol: {user.rol}</p>
+                    <p className="font-bold text-gray-900">{user.correo}</p>
+                    <p className="text-xs text-gray-600 font-medium">Rol: {user.rol}</p>
                   </div>
                 </div>
                 <button
