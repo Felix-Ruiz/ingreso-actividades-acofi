@@ -18,30 +18,62 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     setLoading(true);
     try {
       let table = "";
-      if (activeTab === "participantes") table = "base_datos_participantes";
-      if (activeTab === "ponencias") table = "ponencias";
-      if (activeTab === "checkins") table = "check_ins";
+      let orderCol = "";
+      let isAscending = true;
 
-      let query = supabase
-        .from(table)
-        .select(activeTab === "checkins" ? "*, base_datos_participantes(nombre, apellido)" : "*");
-      
-      // Filtros para asegurar que no traiga filas basura (vacías) creadas por errores de subida
+      // Asignamos columnas seguras que sabemos que existen en tu BD
       if (activeTab === "participantes") {
-        query = query.not("correo", "is", null).eq("modulo", moduloSeleccionado);
+        table = "base_datos_participantes";
+        orderCol = "nombre";
+        isAscending = true;
       } else if (activeTab === "ponencias") {
-        query = query.not("codigo_ponencia", "is", null);
+        table = "ponencias";
+        orderCol = "fecha_programada";
+        isAscending = false;
       } else if (activeTab === "checkins") {
-        query = query.not("correo_usuario", "is", null).eq("modulo", moduloSeleccionado);
+        table = "check_ins";
+        orderCol = "id";
+        isAscending = false;
+      }
+
+      let query = supabase.from(table).select("*");
+      
+      if (activeTab !== "ponencias") {
+        query = query.eq("modulo", moduloSeleccionado);
       }
       
       const { data: result, error } = await query
-        .order(activeTab === "ponencias" ? "fecha_programada" : "created_at", { ascending: false })
+        .order(orderCol, { ascending: isAscending })
         .limit(200);
         
       if (error) throw error;
       
-      setData(result || []);
+      // Mapeo manual de nombres para check-ins (evita errores de llaves foráneas en Supabase)
+      if (activeTab === "checkins" && result && result.length > 0) {
+        const correos = result.map(r => r.correo_usuario);
+        const { data: participantesData } = await supabase
+          .from("base_datos_participantes")
+          .select("correo, nombre, apellido")
+          .in("correo", correos)
+          .eq("modulo", moduloSeleccionado);
+          
+        const mapNombres: Record<string, string> = {};
+        if (participantesData) {
+          participantesData.forEach(p => {
+            mapNombres[p.correo] = `${p.nombre || ""} ${p.apellido || ""}`.trim();
+          });
+        }
+        
+        const resultConNombres = result.map(r => ({
+          ...r,
+          nombre_completo: mapNombres[r.correo_usuario] || "-"
+        }));
+        
+        setData(resultConNombres);
+      } else {
+        setData(result || []);
+      }
+      
     } catch (error) {
       console.error("Error cargando datos:", error);
     } finally {
@@ -49,7 +81,6 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     }
   };
 
-  // Se ejecuta siempre que cambie la pestaña o el módulo
   useEffect(() => { 
     fetchData(); 
     setSearchTerm(""); 
@@ -131,7 +162,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
         </div>
         <button 
           onClick={fetchData} 
-          className="ml-4 p-2 text-gray-600 hover:text-[#c81474] transition-colors"
+          className="ml-4 p-2 text-gray-600 hover:text-[#c81474]"
         >
           <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
         </button>
@@ -191,7 +222,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                           />
                         </div>
                       ) : (
-                        `${item.nombre || ""} ${item.apellido || ""}`
+                        `${item.nombre || "-"} ${item.apellido || ""}`
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-700">{item.correo}</td>
@@ -295,9 +326,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                 {activeTab === "checkins" && (
                   <>
                     <td className="px-4 py-3 font-bold text-gray-900">
-                      {item.base_datos_participantes 
-                        ? `${item.base_datos_participantes.nombre || ""} ${item.base_datos_participantes.apellido || ""}` 
-                        : "-"}
+                      {item.nombre_completo}
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       {item.correo_usuario || "-"}
@@ -314,10 +343,11 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                 )}
               </tr>
             ))}
+            
             {filteredData.length === 0 && !loading && (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
-                  No se encontraron registros válidos para este módulo.
+                  No se encontraron registros en la base de datos para este evento.
                 </td>
               </tr>
             )}

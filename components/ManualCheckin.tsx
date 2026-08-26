@@ -136,7 +136,9 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
                   <h3 className="text-lg font-bold text-gray-900">
                     {p.nombre} {p.apellido}
                   </h3>
-                  <p className="text-gray-600 text-sm">{p.correo}</p>
+                  <p className="text-gray-600 text-sm">
+                    {p.correo} {p.numero_documento ? `| Doc: ${p.numero_documento}` : ""}
+                  </p>
                 </div>
                 
                 {/* Toggle UI */}
