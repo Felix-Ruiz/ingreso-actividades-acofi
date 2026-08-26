@@ -9,7 +9,6 @@ export default function EvaluationForm() {
   const [paperCode, setPaperCode] = useState("");
   const [rating, setRating] = useState("");
   
-  // Estados para retroalimentación de la interfaz
   const [loading, setLoading] = useState(false);
   const [mensaje, setMensaje] = useState<{ tipo: "error" | "exito"; texto: string } | null>(null);
 
@@ -55,11 +54,9 @@ export default function EvaluationForm() {
 
     const correoLimpio = email.trim().toLowerCase();
     const codigoLimpio = paperCode.trim();
-    // Forzamos la fecha local de Colombia en formato YYYY-MM-DD
     const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 
     try {
-      // 1. Validar existencia del usuario
       const { data: usuario, error: errUsuario } = await supabase
         .from("base_datos_participantes")
         .select("nombre")
@@ -68,7 +65,6 @@ export default function EvaluationForm() {
 
       if (!usuario || errUsuario) throw new Error(t.uNotExist);
 
-      // 2. Validar Check-in de Hoy
       const { data: checkin } = await supabase
         .from("check_ins")
         .select("id")
@@ -79,7 +75,6 @@ export default function EvaluationForm() {
 
       if (!checkin) throw new Error(t.noCheckin);
 
-      // 3. Validar Ponencia y Fecha
       const { data: ponencia, error: errPonencia } = await supabase
         .from("ponencias")
         .select("fecha_programada")
@@ -89,7 +84,6 @@ export default function EvaluationForm() {
       if (!ponencia || errPonencia) throw new Error(t.pNotExist);
       if (ponencia.fecha_programada !== todayStr) throw new Error(t.dateInvalid);
 
-      // 4. Validar si ya votó
       const { data: evaluacionPrevia } = await supabase
         .from("evaluaciones")
         .select("id")
@@ -99,7 +93,6 @@ export default function EvaluationForm() {
 
       if (evaluacionPrevia) throw new Error(t.already);
 
-      // 5. Registrar Evaluación
       const { error: errInsert } = await supabase
         .from("evaluaciones")
         .insert([
@@ -112,7 +105,6 @@ export default function EvaluationForm() {
 
       if (errInsert) throw new Error(t.sysError);
 
-      // Éxito
       setMensaje({ tipo: "exito", texto: `${t.success}${usuario.nombre}` });
       setPaperCode("");
       setRating("");
@@ -125,7 +117,7 @@ export default function EvaluationForm() {
   };
 
   return (
-    <div className="relative z-10 flex flex-col items-center pt-24 px-4 w-full max-w-md mx-auto">
+    <div className="relative z-10 flex flex-col items-center pt-20 px-4 w-full max-w-md mx-auto">
       {/* Switch de Idiomas */}
       <div className="fixed top-6 right-6 z-20">
         <div className="flex bg-white rounded-full shadow-md p-1">
@@ -148,17 +140,13 @@ export default function EvaluationForm() {
         </div>
       </div>
 
-      {/* Logo Circular */}
-      <div className="w-24 h-24 bg-white rounded-full shadow-lg flex items-center justify-center mb-6">
-        <div className="w-12 h-12 flex space-x-1">
-          <div className="w-3 h-full bg-yellow-400 transform -skew-y-12 rounded-sm"></div>
-          <div className="w-3 h-full bg-blue-600 transform skew-y-12 rounded-sm"></div>
-          <div className="w-3 h-full bg-orange-500 transform -skew-y-12 rounded-sm"></div>
-        </div>
+      {/* Logo Real (Imagen desde public/logo.png) */}
+      <div className="w-24 h-24 bg-white rounded-full shadow-lg flex items-center justify-center mb-6 overflow-hidden">
+        <img src="/logo.png" alt="Logo Evento" className="w-16 h-16 object-contain" />
       </div>
 
-      {/* Título */}
-      <h1 className="text-3xl font-extrabold text-[#c81474] mb-4 text-center">
+      {/* Título - Restablecido para que se vea correctamente */}
+      <h1 className="text-3xl font-extrabold text-[#c81474] mb-6 text-center drop-shadow-sm">
         {t.title}
       </h1>
 

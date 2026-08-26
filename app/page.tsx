@@ -8,15 +8,14 @@ export default function Home() {
         <title>ACOFI - Evaluación de Ponencias</title>
       </Head>
 
-      {/* Fondo curvo color Magenta */}
+      {/* Fondo curvo ajustado al diseño original */}
       <div 
-        className="absolute top-0 left-0 w-full h-[55vh] bg-[#c81474] z-0"
+        className="absolute top-0 left-0 w-full h-[40vh] bg-[#c81474] z-0"
         style={{
-          clipPath: "ellipse(150% 100% at 50% 0%)",
+          clipPath: "ellipse(120% 100% at 50% 0%)",
         }}
       ></div>
 
-      {/* Componente Modular del Formulario */}
       <EvaluationForm />
     </main>
   );
