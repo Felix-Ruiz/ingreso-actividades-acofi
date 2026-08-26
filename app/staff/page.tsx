@@ -3,14 +3,15 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
-import { LogOut, QrCode, FileSpreadsheet, Activity, Search, Download } from "lucide-react";
+import { LogOut, QrCode, FileSpreadsheet, Activity, Download, Keyboard } from "lucide-react";
 import QRScanner from "../../components/QRScanner";
+import ManualCheckin from "../../components/ManualCheckin";
 
 export default function StaffDashboard() {
   const [cargando, setCargando] = useState(true);
   const [descargando, setDescargando] = useState(false);
   const [usuarioActivo, setUsuarioActivo] = useState<string | null>(null);
-  const [vistaActiva, setVistaActiva] = useState<"dashboard" | "scanner">("dashboard");
+  const [vistaActiva, setVistaActiva] = useState<"dashboard" | "scanner" | "manual">("dashboard");
   const router = useRouter();
 
   useEffect(() => {
@@ -89,7 +90,7 @@ export default function StaffDashboard() {
       <main className="max-w-4xl mx-auto p-4 sm:p-6 mt-4">
         
         {/* Navegación interna */}
-        <div className="flex space-x-2 mb-6">
+        <div className="flex flex-wrap gap-2 mb-6">
           <button 
             onClick={() => setVistaActiva("dashboard")}
             className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
@@ -107,6 +108,15 @@ export default function StaffDashboard() {
             <QrCode className="w-4 h-4" />
             <span>Lector QR</span>
           </button>
+          <button 
+            onClick={() => setVistaActiva("manual")}
+            className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
+              vistaActiva === "manual" ? "bg-[#c81474] text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}
+          >
+            <Keyboard className="w-4 h-4" />
+            <span>Registro Manual</span>
+          </button>
         </div>
 
         {/* Vista: DASHBOARD */}
@@ -118,14 +128,22 @@ export default function StaffDashboard() {
               </div>
               <h3 className="text-lg font-bold text-gray-800 mb-2">Ingreso de Participantes</h3>
               <p className="text-gray-500 text-sm mb-6">
-                Lee los códigos QR en las escarapelas para habilitar las evaluaciones diarias.
+                Lee códigos QR o registra asistentes manualmente para habilitar sus evaluaciones.
               </p>
-              <button 
-                onClick={() => setVistaActiva("scanner")}
-                className="w-full bg-[#c81474] hover:bg-pink-800 text-white font-bold py-3 px-4 rounded-xl transition-colors shadow-md"
-              >
-                Abrir Cámara
-              </button>
+              <div className="flex space-x-2 w-full">
+                <button 
+                  onClick={() => setVistaActiva("scanner")}
+                  className="flex-1 bg-[#c81474] hover:bg-pink-800 text-white font-bold py-3 px-2 rounded-xl transition-colors shadow-md text-sm"
+                >
+                  Cámara
+                </button>
+                <button 
+                  onClick={() => setVistaActiva("manual")}
+                  className="flex-1 bg-white border-2 border-[#c81474] text-[#c81474] hover:bg-pink-50 font-bold py-3 px-2 rounded-xl transition-colors shadow-sm text-sm"
+                >
+                  Manual
+                </button>
+              </div>
             </div>
 
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
@@ -159,9 +177,20 @@ export default function StaffDashboard() {
           <div>
             <h2 className="text-2xl font-extrabold text-gray-800 mb-4">Lector de Ingreso</h2>
             <p className="text-gray-600 mb-6 text-sm">
-              Apunta la cámara al código QR de la escarapela del participante. El sistema registrará el ingreso automáticamente.
+              Apunta la cámara al código QR de la escarapela del participante.
             </p>
             <QRScanner />
+          </div>
+        )}
+
+        {/* Vista: MANUAL */}
+        {vistaActiva === "manual" && (
+          <div>
+            <h2 className="text-2xl font-extrabold text-gray-800 mb-4">Búsqueda Manual</h2>
+            <p className="text-gray-600 mb-6 text-sm">
+              Busca a un participante por su correo electrónico registrado para confirmar su asistencia de forma manual.
+            </p>
+            <ManualCheckin />
           </div>
         )}
 
