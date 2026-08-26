@@ -13,13 +13,11 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   const [searchTerm, setSearchTerm] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
-  
-  // Nuevo Estado para selección múltiple
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const fetchData = async () => {
     setLoading(true);
-    setSelectedIds(new Set()); // Limpiar selección al recargar
+    setSelectedIds(new Set());
     try {
       let table = "";
       let orderCol = "";
@@ -45,9 +43,10 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
         query = query.eq("modulo", moduloSeleccionado);
       }
       
+      // Incrementamos el límite a 5000 para que la búsqueda en memoria funcione con todos
       const { data: result, error } = await query
         .order(orderCol, { ascending: isAscending })
-        .limit(500); // Aumentamos límite para facilitar eliminación
+        .limit(5000);
         
       if (error) throw error;
       
@@ -110,11 +109,13 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     }
   };
 
-  const filteredData = data.filter((item) => 
+  // Filtramos la data en memoria y RECORTE PARA RENDERIZAR SOLO 100 FILAS (Elimina la lentitud)
+  const allFilteredData = data.filter((item) => 
     JSON.stringify(item).toLowerCase().includes(searchTerm.toLowerCase())
   );
+  
+  const filteredData = allFilteredData.slice(0, 100);
 
-  // Funciones de Selección Múltiple
   const getIdKey = () => {
     if (activeTab === "participantes") return "correo";
     if (activeTab === "ponencias") return "codigo_ponencia";
@@ -437,10 +438,18 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
               </tr>
             )})}
             
-            {filteredData.length === 0 && !loading && (
+            {allFilteredData.length === 0 && !loading && (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
                   No se encontraron registros válidos para este módulo.
+                </td>
+              </tr>
+            )}
+            
+            {allFilteredData.length > 100 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-4 text-center text-gray-400 text-xs font-bold bg-gray-50">
+                  Mostrando 100 de {allFilteredData.length} resultados. Usa el buscador para encontrar un registro específico.
                 </td>
               </tr>
             )}

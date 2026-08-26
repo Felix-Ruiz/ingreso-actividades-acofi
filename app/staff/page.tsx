@@ -68,6 +68,7 @@ export default function StaffDashboard() {
   }, [router]);
 
   const cerrarSesion = async () => {
+    setCargando(true); // Activa el loader instantáneamente para evitar la sensación de "lentitud"
     await supabase.auth.signOut();
     router.replace("/login");
   };

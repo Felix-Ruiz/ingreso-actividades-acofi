@@ -17,11 +17,12 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
   const cargarDatos = async () => {
     setCargando(true);
     try {
+      // Ampliamos el límite a 5000 para que jamás falte nadie en la búsqueda manual
       const { data: partData, error: errPart } = await supabase
         .from("base_datos_participantes")
         .select("*")
         .eq("modulo", moduloSeleccionado)
-        .limit(500);
+        .limit(5000);
         
       if (errPart) throw errPart;
 
@@ -29,7 +30,8 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         .from("check_ins")
         .select("correo_usuario")
         .eq("dia_evento", todayStr)
-        .eq("modulo", moduloSeleccionado);
+        .eq("modulo", moduloSeleccionado)
+        .limit(5000);
         
       if (errCheck) throw errCheck;
 
@@ -86,10 +88,16 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
     }
   };
 
+  // Filtrado en memoria (Vuela) y recorte a los primeros 60 resultados para no congelar la pantalla
   const participantesFiltrados = participantes.filter(p => 
     terminoBusqueda === "" || 
     `${p.nombre} ${p.apellido} ${p.correo} ${p.numero_documento}`.toLowerCase().includes(terminoBusqueda.toLowerCase())
-  );
+  ).slice(0, 60);
+
+  // Cálculos de Estadísticas
+  const totalInscritos = participantes.length;
+  const totalIngresados = checkinsHoy.size;
+  const totalFaltantes = totalInscritos > 0 ? (totalInscritos - totalIngresados) : 0;
 
   return (
     <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-6 relative">
@@ -97,7 +105,23 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         Módulo: {moduloSeleccionado}
       </div>
 
-      <div className="flex space-x-2 mb-6 mt-6">
+      {/* PANEL DE ESTADÍSTICAS */}
+      <div className="grid grid-cols-3 gap-4 mt-8 mb-6">
+        <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex flex-col items-center justify-center">
+          <p className="text-blue-600 text-[10px] sm:text-xs font-bold uppercase text-center">Total Inscritos</p>
+          <h3 className="text-xl sm:text-3xl font-extrabold text-blue-900">{totalInscritos}</h3>
+        </div>
+        <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex flex-col items-center justify-center">
+          <p className="text-green-600 text-[10px] sm:text-xs font-bold uppercase text-center">Ya Ingresaron</p>
+          <h3 className="text-xl sm:text-3xl font-extrabold text-green-900">{totalIngresados}</h3>
+        </div>
+        <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl flex flex-col items-center justify-center">
+          <p className="text-orange-600 text-[10px] sm:text-xs font-bold uppercase text-center">Faltan Llegar</p>
+          <h3 className="text-xl sm:text-3xl font-extrabold text-orange-900">{totalFaltantes}</h3>
+        </div>
+      </div>
+
+      <div className="flex space-x-2 mb-6">
         <div className="relative grow">
           <div className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400">
             <Search className="w-5 h-5" />
@@ -121,7 +145,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
 
       {cargando ? (
         <div className="p-8 text-center text-gray-500 font-bold animate-pulse">
-          Cargando lista...
+          Cargando lista y calculando estadísticas...
         </div>
       ) : (
         <div className="space-y-3 max-h-125 overflow-y-auto pr-2">
@@ -160,6 +184,11 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
           })}
           {participantesFiltrados.length === 0 && (
             <p className="text-center text-gray-500 py-4">No se encontraron resultados.</p>
+          )}
+          {participantesFiltrados.length === 60 && terminoBusqueda === "" && (
+            <p className="text-center text-gray-400 py-2 text-xs">
+              Mostrando los primeros 60. Usa el buscador para encontrar a alguien específico.
+            </p>
           )}
         </div>
       )}
