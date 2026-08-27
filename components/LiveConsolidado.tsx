@@ -239,7 +239,6 @@ export default function LiveConsolidado() {
         </div>
       ) : (
         <div className="flex flex-col">
-          {/* Barra de Búsqueda Universal */}
           <div className="p-4 bg-white border-b border-gray-200 flex justify-between items-center">
             <div className="relative w-full max-w-md">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -339,14 +338,14 @@ export default function LiveConsolidado() {
                         <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-pink-50 border-r border-gray-100">{r.hasMod ? r.I.toFixed(2) : "-"}</td>
                         
                         <td className="px-3 py-2 font-mono font-bold text-gray-900 border-r border-gray-100">{r.J}</td>
-                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.K.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.L.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.K.toFixed(2)}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.L.toFixed(2)}</td>
                         <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-purple-50 border-r border-gray-100">{r.J > 0 ? r.M.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.N.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.O.toFixed(1) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.P.toFixed(1) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-purple-50 border-r border-gray-100">{r.hasMod ? r.Q.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-extrabold text-green-800 bg-green-100 border-r border-gray-200 text-sm">{r.hasMod ? r.R.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.N.toFixed(2)}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.O.toFixed(1)}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.P.toFixed(1)}</td>
+                        <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-purple-50 border-r border-gray-100">{r.Q.toFixed(2)}</td>
+                        <td className="px-3 py-2 font-mono font-extrabold text-green-800 bg-green-100 border-r border-gray-200 text-sm">{r.R.toFixed(2)}</td>
                         
                         {sheets.uniqueParticipants.map(name => {
                           const pVote = r.pVotes.find((v: any) => v.nombreCompleto === name);

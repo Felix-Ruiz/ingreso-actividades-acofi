@@ -192,7 +192,6 @@ export async function GET() {
       const lastColLetter = uniqueParticipants.length > 0 ? colNumLetra(18 + uniqueParticipants.length) : 'S';
       const maxRows = ponenciasDB.length + 1;
       
-      // J y M siempre se calculan basado en los votos de participantes
       if (uniqueParticipants.length > 0) {
         row.getCell(10).value = { formula: `COUNT(S${f}:${lastColLetter}${f})` }; 
         row.getCell(13).value = { formula: `IF(J${f}>0, AVERAGE(S${f}:${lastColLetter}${f}), "")` }; 
@@ -201,14 +200,14 @@ export async function GET() {
         row.getCell(13).value = "";
       }
 
-      // K, L, N, O, P, Q, R se ocultan si no hay moderador (B${f} = "Sin Moderador")
-      row.getCell(11).value = { formula: `IF(B${f}="Sin Moderador", "", IFERROR(AVERAGE($J$2:$J$${maxRows}), 0))` }; 
-      row.getCell(12).value = { formula: `IF(B${f}="Sin Moderador", "", K${f}*2)` }; 
-      row.getCell(14).value = { formula: `IF(B${f}="Sin Moderador", "", IFERROR(AVERAGE($M$2:$M$${maxRows}), 0))` }; 
-      row.getCell(15).value = { formula: `IF(B${f}="Sin Moderador", "", 2.0)` }; 
-      row.getCell(16).value = { formula: `IF(B${f}="Sin Moderador", "", 30.0)` }; 
-      row.getCell(17).value = { formula: `IF(B${f}="Sin Moderador", "", IFERROR(N${f}+(J${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f})))^O${f}*(M${f}-N${f})-P${f}*(L${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f}))), 0))` }; 
-      row.getCell(18).value = { formula: `IF(B${f}="Sin Moderador", "", IFERROR((Q${f}*0.4)+(0.6*I${f}), 0))` }; 
+      // Se removió el IF(B="Sin Moderador", "") para forzar los cálculos en todas las filas
+      row.getCell(11).value = { formula: `IFERROR(AVERAGE($J$2:$J$${maxRows}), 0)` }; 
+      row.getCell(12).value = { formula: `K${f}*2` }; 
+      row.getCell(14).value = { formula: `IFERROR(AVERAGE($M$2:$M$${maxRows}), 0)` }; 
+      row.getCell(15).value = 2.0; 
+      row.getCell(16).value = 30.0; 
+      row.getCell(17).value = { formula: `IFERROR(N${f}+(J${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f})))^O${f}*(M${f}-N${f})-P${f}*(L${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f}))), 0)` }; 
+      row.getCell(18).value = { formula: `IFERROR((Q${f}*0.4)+(0.6*I${f}), 0)` }; 
 
       row.getCell(3).numFmt = '0.00';
       row.getCell(4).numFmt = '0.00';
