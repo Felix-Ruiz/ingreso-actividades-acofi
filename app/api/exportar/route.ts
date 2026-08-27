@@ -13,18 +13,21 @@ export async function GET() {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // 1. Extraer Usuarios y Evaluaciones
     const { data: partData, error: errPart } = await supabase
       .from('base_datos_participantes')
-      .select('*');
+      .select('*')
+      .eq('modulo', 'Ponencias');
 
     const { data: evalData, error: errEv } = await supabase
       .from('evaluaciones')
       .select('*');
 
-    if (errPart || errEv) throw new Error("Error extrayendo datos de Supabase");
+    const { data: ponenciasData, error: errPon } = await supabase
+      .from('ponencias')
+      .select('*');
 
-    // 2. Mapear Usuarios para búsqueda rápida
+    if (errPart || errEv || errPon) throw new Error("Error extrayendo datos de Supabase");
+
     const usuariosMap: Record<string, any> = {};
     partData?.forEach(p => {
       usuariosMap[(p.correo || "").toLowerCase()] = {
@@ -35,10 +38,9 @@ export async function GET() {
       };
     });
 
-    // 3. Reconstruir la lógica de "registrarVoto" del App Script
     const resultados = (evalData || []).map(ev => {
       const u = (ev.correo_usuario || "").toLowerCase();
-      const pData = usuariosMap[u] || { nombre: "", apellido: "", rol: "Participante", numero_documento: "" };
+      const pData = usuariosMap[u] || { nombre: "Sin", apellido: "Registro", rol: "Participante", numero_documento: "N/A" };
       
       let rolBD = pData.rol.toLowerCase();
       let tipoEvaluador = "Participante";
@@ -65,18 +67,13 @@ export async function GET() {
     workbook.creator = 'ACOFI';
     workbook.created = new Date();
 
-    // =========================================================
-    // HOJA 1: Resultados (Equivalente al shR.appendRow)
-    // =========================================================
     const shR = workbook.addWorksheet('Resultados');
     shR.addRow(["Email", "Código Ponencia", "Calificación", "Fecha", "Nombre", "Apellido", "Rol"]);
     resultados.forEach(r => {
       shR.addRow([r.email, r.ponencia, r.nota, r.fecha, r.nombre, r.apellido, r.rol]);
     });
 
-    // Función equivalente a gestionarHojaYDatos
     const crearHojaConEstadisticas = (nombreHoja: string, datos: any[]) => {
-      // Excel permite máximo 31 caracteres por nombre de hoja
       const sh = workbook.addWorksheet(nombreHoja.substring(0, 31));
       const headers = ["Email", "Código Ponencia", "Calificación", "Fecha", "Nombre", "Apellido", "Rol"];
       sh.addRow(headers);
@@ -93,12 +90,12 @@ export async function GET() {
       const lastR = datos.length + 1;
       sh.getCell('H1').value = "Desviación Estándar";
       sh.getCell('H1').font = { bold: true };
-      // Corregido: Asignación de fórmula a través de la propiedad value
-      sh.getCell('H2').value = { formula: `IF(COUNTA(C2:C${lastR})>0, STDEV.P(C2:C${lastR}), "")` };
+      // SE CORRIGIÓ EL ERROR #####: Solo calcula STDEV si hay más de 1 dato.
+      sh.getCell('H2').value = { formula: `IF(COUNT(C2:C${lastR})>1, STDEV.P(C2:C${lastR}), 0)` };
 
       sh.getCell('I1').value = "Promedio";
       sh.getCell('I1').font = { bold: true };
-      sh.getCell('I2').value = { formula: `IF(COUNTA(C2:C${lastR})>0, AVERAGE(C2:C${lastR}), "")` };
+      sh.getCell('I2').value = { formula: `IF(COUNT(C2:C${lastR})>0, AVERAGE(C2:C${lastR}), 0)` };
 
       sh.getCell('H2').numFmt = '0.00';
       sh.getCell('I2').numFmt = '0.00';
@@ -106,9 +103,6 @@ export async function GET() {
       sh.getCell('I2').font = { bold: true, color: { argb: 'FFC81474' } };
     };
 
-    // =========================================================
-    // HOJAS DE ROLES Y MODERADORES INDIVIDUALES
-    // =========================================================
     const mods = resultados.filter(r => r.rol === "Moderador");
     const parts = resultados.filter(r => r.rol === "Participante");
 
@@ -121,11 +115,10 @@ export async function GET() {
       crearHojaConEstadisticas(name, modVotes);
     });
 
-    // =========================================================
-    // HOJA MAESTRA: Consolidado (gestionarConsolidadoDinamico)
-    // =========================================================
     const shC = workbook.addWorksheet('Consolidado');
-    const uniquePonencias = Array.from(new Set(resultados.map(r => r.ponencia)));
+    
+    // Extraemos ponencias de la base de datos maestra para que salgan todas, tengan o no votos
+    const ponenciasDB = ponenciasData || [];
     const uniqueParticipants = Array.from(new Set(parts.map(p => p.nombreCompleto)));
 
     const headersC = [
@@ -140,7 +133,6 @@ export async function GET() {
     headersC.push(...uniqueParticipants);
     shC.addRow(headersC);
     
-    // Aplicar Colores del App Script original
     const headerRowC = shC.getRow(1);
     for(let i = 1; i <= 9; i++) {
       headerRowC.getCell(i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC81474' } };
@@ -153,7 +145,6 @@ export async function GET() {
     headerRowC.getCell(18).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1BA829' } };
     headerRowC.getCell(18).font = { color: { argb: 'FFFFFFFF' }, bold: true };
 
-    // Ocultar Columnas de Participantes
     for(let i = 19; i <= 18 + uniqueParticipants.length; i++) {
       headerRowC.getCell(i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF5C5C5C' } };
       headerRowC.getCell(i).font = { color: { argb: 'FFFFFFFF' }, bold: true };
@@ -161,29 +152,39 @@ export async function GET() {
     }
     shC.views = [{ state: 'frozen', ySplit: 1 }];
 
-    const colNumLetra = (num: number) => shC.getColumn(num).letter;
+    const colNumLetra = (num: number) => {
+      let temp = num, letter = '';
+      while (temp > 0) {
+        let mod = (temp - 1) % 26;
+        letter = String.fromCharCode(65 + mod) + letter;
+        temp = Math.floor((temp - mod) / 26);
+      }
+      return letter;
+    };
 
-    // Procesar cada Ponencia
-    uniquePonencias.forEach((pon, idx) => {
+    ponenciasDB.forEach((ponDB, idx) => {
+      const pon = ponDB.codigo_ponencia;
       const f = idx + 2;
-      const rRow = new Array(headersC.length).fill("");
+      const rRow = new Array(headersC.length).fill(null); // Usamos null para que no inserte strings vacíos
       rRow[0] = pon; 
 
-      // Data de Moderador
       const modVote = mods.find(m => m.ponencia === pon);
       if (modVote) {
         const nomEval = modVote.nombreCompleto.substring(0, 31);
-        rRow[1] = nomEval; // B
-        rRow[2] = modVote.nota; // C
-        rRow[3] = { formula: `IF(Moderador!H2="", "", Moderador!H2)` }; // D
-        rRow[4] = { formula: `IF('${nomEval}'!H2="", "", '${nomEval}'!H2)` }; // E
-        rRow[5] = { formula: `IF(Moderador!I2="", "", Moderador!I2)` }; // F
-        rRow[6] = { formula: `IF('${nomEval}'!I2="", "", '${nomEval}'!I2)` }; // G
-        rRow[7] = 0.8; // H
-        rRow[8] = { formula: `MAX(0, MIN(1000, F${f}+H${f}*(D${f}/E${f})*(C${f}-G${f})))` }; // I
+        rRow[1] = nomEval; 
+        rRow[2] = modVote.nota; 
+        // Uso de IFERROR para evitar roturas de Excel
+        rRow[3] = { formula: `IFERROR(Moderador!$H$2, 0)` }; 
+        rRow[4] = { formula: `IFERROR('${nomEval}'!$H$2, 0)` }; 
+        rRow[5] = { formula: `IFERROR(Moderador!$I$2, 0)` }; 
+        rRow[6] = { formula: `IFERROR('${nomEval}'!$I$2, 0)` }; 
+        rRow[7] = 0.8; 
+        rRow[8] = { formula: `IFERROR(MAX(0, MIN(1000, F${f}+H${f}*(D${f}/IF(E${f}=0,1,E${f}))*(C${f}-G${f}))), 0)` }; 
+      } else {
+        rRow[1] = "Sin Moderador";
+        rRow[2] = 0; rRow[3] = 0; rRow[4] = 0; rRow[5] = 0; rRow[6] = 0; rRow[7] = 0.8; rRow[8] = 0;
       }
 
-      // Data de Participantes
       const pVotes = parts.filter(p => p.ponencia === pon);
       pVotes.forEach(pv => {
         const cIdx = 18 + uniqueParticipants.indexOf(pv.nombreCompleto);
@@ -192,28 +193,45 @@ export async function GET() {
 
       const row = shC.addRow(rRow);
 
-      // Fórmulas Dinámicas Globales
       const lastColLetter = uniqueParticipants.length > 0 ? colNumLetra(18 + uniqueParticipants.length) : 'S';
+      const maxRows = ponenciasDB.length + 1;
       
       if (uniqueParticipants.length > 0) {
-        row.getCell(10).value = { formula: `IF(COUNTA(S${f}:${lastColLetter}${f})=0, "", COUNTA(S${f}:${lastColLetter}${f}))` }; // J
-        row.getCell(13).value = { formula: `IF(COUNTA(S${f}:${lastColLetter}${f})=0, "", AVERAGE(S${f}:${lastColLetter}${f}))` }; // M
+        // SE CORRIGIÓ: Se usa COUNT (cuenta solo números) para no contar celdas en blanco o fórmulas.
+        row.getCell(10).value = { formula: `COUNT(S${f}:${lastColLetter}${f})` }; 
+        row.getCell(13).value = { formula: `IF(J${f}>0, AVERAGE(S${f}:${lastColLetter}${f}), "")` }; 
       } else {
-        row.getCell(10).value = "";
+        row.getCell(10).value = 0;
         row.getCell(13).value = "";
       }
 
-      // Formulación Avanzada Corregida para TypeScript
-      row.getCell(11).value = { formula: `AVERAGE($J$2:$J$1000)` }; // K
-      row.getCell(12).value = { formula: `K${f}*2` }; // L
-      row.getCell(14).value = { formula: `AVERAGE($M$2:$M$1000)` }; // N
-      row.getCell(15).value = 2.0; // O
-      row.getCell(16).value = 30.0; // P
-      row.getCell(17).value = { formula: `N${f}+(J${f}/(J${f}+L${f}))^O${f}*(M${f}-N${f})-P${f}*(L${f}/(J${f}+L${f}))` }; // Q
-      row.getCell(18).value = { formula: `(Q${f}*0.4)+(0.6*I${f})` }; // R
+      row.getCell(11).value = { formula: `IFERROR(AVERAGE($J$2:$J$${maxRows}), 0)` }; 
+      row.getCell(12).value = { formula: `K${f}*2` }; 
+      row.getCell(14).value = { formula: `IFERROR(AVERAGE($M$2:$M$${maxRows}), 0)` }; 
+      row.getCell(15).value = 2.0; 
+      row.getCell(16).value = 30.0; 
+      row.getCell(17).value = { formula: `IFERROR(N${f}+(J${f}/(J${f}+L${f}))^O${f}*(M${f}-N${f})-P${f}*(L${f}/(J${f}+L${f})), 0)` }; 
+      row.getCell(18).value = { formula: `IFERROR((Q${f}*0.4)+(0.6*I${f}), 0)` }; 
 
-      // Formato a dos decimales
-      for(let i = 3; i <= 18; i++) {
+      // FORMATOS DE CELDA EXACTOS
+      row.getCell(3).numFmt = '0.00';   // Nota Mod
+      row.getCell(4).numFmt = '0.00';   // Desv Gral
+      row.getCell(5).numFmt = '0.00';   // Desv Ind
+      row.getCell(6).numFmt = '0.00';   // Prom Gral
+      row.getCell(7).numFmt = '0.00';   // Prom Ind
+      row.getCell(8).numFmt = '0.0';    // Corrección
+      row.getCell(9).numFmt = '0.00';   // Nota Norm Mod
+      row.getCell(10).numFmt = '0';     // Num Calificaciones (ENTEROS, sin decimales)
+      row.getCell(11).numFmt = '0.00';  // Prom Num Calif
+      row.getCell(12).numFmt = '0.00';  // Prom Num Calif x2
+      row.getCell(13).numFmt = '0.00';  // Prom Orig
+      row.getCell(14).numFmt = '0.00';  // Prom Global Asist
+      row.getCell(15).numFmt = '0.00';  // Factor 1
+      row.getCell(16).numFmt = '0.00';  // Factor 2
+      row.getCell(17).numFmt = '0.00';  // Norm Asistentes
+      row.getCell(18).numFmt = '0.00';  // Nota Final
+      
+      for(let i = 19; i <= 18 + uniqueParticipants.length; i++) {
          row.getCell(i).numFmt = '0.00';
       }
     });

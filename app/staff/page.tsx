@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
-import { LogOut, QrCode, FileSpreadsheet, Activity, Download, Keyboard, Database, TableProperties, Settings, Radio, CheckCircle, XCircle } from "lucide-react";
+import { LogOut, QrCode, FileSpreadsheet, Activity, Download, Keyboard, Database, TableProperties, Settings, Radio, CheckCircle, XCircle, Table } from "lucide-react";
 import QRScanner from "../../components/QRScanner";
 import ManualCheckin from "../../components/ManualCheckin";
 import DataUploader from "../../components/DataUploader";
 import DatabaseManager from "../../components/DatabaseManager";
 import RealTimeDashboard from "../../components/RealTimeDashboard";
+import LiveConsolidado from "../../components/LiveConsolidado";
 import UserManagement from "../../components/UserManagement";
 
 export default function StaffDashboard() {
@@ -17,7 +18,7 @@ export default function StaffDashboard() {
   const [usuarioActivo, setUsuarioActivo] = useState<string | null>(null);
   const [rolActivo, setRolActivo] = useState<"Master" | "Admin">("Admin");
   
-  const [vistaActiva, setVistaActiva] = useState<"dashboard" | "scanner" | "manual" | "datos" | "registros" | "vivo" | "config">("dashboard");
+  const [vistaActiva, setVistaActiva] = useState<"dashboard" | "scanner" | "manual" | "datos" | "registros" | "vivo" | "consolidado" | "config">("dashboard");
   
   const [modulosList, setModulosList] = useState<string[]>(["Ponencias"]);
   const [moduloSeleccionado, setModuloSeleccionado] = useState<string>("Ponencias");
@@ -68,7 +69,7 @@ export default function StaffDashboard() {
   }, [router]);
 
   const cerrarSesion = async () => {
-    setCargando(true); // Activa el loader instantáneamente para evitar la sensación de "lentitud"
+    setCargando(true);
     await supabase.auth.signOut();
     router.replace("/login");
   };
@@ -101,7 +102,7 @@ export default function StaffDashboard() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "Evaluaciones_ACOFI.xlsx";
+      a.download = "Evaluacion_WEEF_2026.xlsx";
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -206,15 +207,26 @@ export default function StaffDashboard() {
           {rolActivo === "Master" && (
             <>
               {moduloSeleccionado === "Ponencias" && (
-                <button 
-                  onClick={() => setVistaActiva("vivo")} 
-                  className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
-                    vistaActiva === "vivo" ? "bg-emerald-600 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                  }`}
-                >
-                  <Radio className="w-4 h-4" /> 
-                  <span>En Vivo</span>
-                </button>
+                <>
+                  <button 
+                    onClick={() => setVistaActiva("vivo")} 
+                    className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
+                      vistaActiva === "vivo" ? "bg-emerald-600 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                    }`}
+                  >
+                    <Radio className="w-4 h-4" /> 
+                    <span>Monitor Actividad</span>
+                  </button>
+                  <button 
+                    onClick={() => setVistaActiva("consolidado")} 
+                    className={`whitespace-nowrap px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center space-x-1 ${
+                      vistaActiva === "consolidado" ? "bg-blue-800 text-white shadow-md" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                    }`}
+                  >
+                    <Table className="w-4 h-4" /> 
+                    <span>Consolidado Vivo</span>
+                  </button>
+                </>
               )}
               
               <button 
@@ -322,11 +334,15 @@ export default function StaffDashboard() {
 
         {vistaActiva === "vivo" && rolActivo === "Master" && moduloSeleccionado === "Ponencias" && (
           <div>
-            <h2 className="text-2xl font-extrabold text-gray-900 mb-4">Dashboard en Vivo</h2>
-            <p className="text-gray-600 mb-6 text-sm">
-              Monitor de evaluaciones en tiempo real conectado a Supabase.
-            </p>
+            <h2 className="text-2xl font-extrabold text-gray-900 mb-4">Monitor de Actividad</h2>
             <RealTimeDashboard />
+          </div>
+        )}
+
+        {vistaActiva === "consolidado" && rolActivo === "Master" && moduloSeleccionado === "Ponencias" && (
+          <div>
+            <h2 className="text-2xl font-extrabold text-gray-900 mb-4">Consolidado Matemático en Vivo</h2>
+            <LiveConsolidado />
           </div>
         )}
 
