@@ -12,22 +12,29 @@ export default function RealTimeDashboard() {
   const cargarDatosIniciales = async () => {
     try {
       setError(null);
-      // 1. Cargar las evaluaciones
-      const { data: evData, error: evError } = await supabase
+      
+      // 1. Cargar las evaluaciones SIN ordenamiento SQL para evitar colapso si falta la columna
+      const { data: rawEvData, error: evError } = await supabase
         .from("evaluaciones")
         .select("*")
-        .order("created_at", { ascending: false })
-        .limit(50);
+        .limit(1000); // Traemos una muestra segura para ordenar en memoria
       
       if (evError) throw evError;
-      if (!evData || evData.length === 0) {
+      if (!rawEvData || rawEvData.length === 0) {
         setEvaluaciones([]);
         setEstadisticas({ total: 0, promedioGral: 0 });
         return;
       }
 
-      // 2. Extraer correos y buscar sus nombres en base de datos de "Ponencias"
-      const correos = evData.map(e => e.correo_usuario);
+      // 2. Ordenar de forma segura en JavaScript (Si no hay created_at asume 0 y no colapsa)
+      const evDataSorted = rawEvData.sort((a, b) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateB - dateA;
+      }).slice(0, 50); // Tomamos solo las 50 más recientes para la tabla visual
+
+      // 3. Extraer correos y buscar sus nombres en base de datos de "Ponencias"
+      const correos = evDataSorted.map(e => e.correo_usuario);
       
       const { data: partData, error: partError } = await supabase
         .from("base_datos_participantes")
@@ -37,7 +44,7 @@ export default function RealTimeDashboard() {
         
       if (partError) throw partError;
 
-      // 3. Crear mapa de nombres para evitar errores de JOIN en SQL
+      // 4. Crear mapa de nombres para evitar errores de JOIN
       const mapParticipantes: Record<string, any> = {};
       if (partData) {
         partData.forEach(p => {
@@ -45,14 +52,16 @@ export default function RealTimeDashboard() {
         });
       }
 
-      // 4. Ensamblar los datos para mostrar
-      const dataUnida = evData.map(ev => ({
+      // 5. Ensamblar los datos para mostrar
+      const dataUnida = evDataSorted.map(ev => ({
         ...ev,
         participante: mapParticipantes[ev.correo_usuario] || { nombre: "Desconocido", apellido: "", rol: "N/A" }
       }));
 
       setEvaluaciones(dataUnida);
-      calcularEstadisticas(dataUnida);
+      
+      // Estadísticas Globales (Calculadas sobre todo el set, no solo sobre los 50 visuales)
+      calcularEstadisticas(rawEvData);
       
     } catch (err: any) {
       console.error("Error en dashboard:", err);
@@ -77,7 +86,7 @@ export default function RealTimeDashboard() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "evaluaciones" },
         (payload) => {
-          cargarDatosIniciales(); // Recargar para obtener el nombre del nuevo
+          cargarDatosIniciales();
         }
       )
       .subscribe();
@@ -92,7 +101,7 @@ export default function RealTimeDashboard() {
       
       {error && (
         <div className="bg-red-100 text-red-800 p-4 rounded-xl flex items-center space-x-2">
-          <AlertCircle className="w-5 h-5" />
+          <AlertCircle className="w-5 h-5 shrink-0" />
           <span className="font-bold text-sm">{error}</span>
         </div>
       )}
@@ -103,7 +112,7 @@ export default function RealTimeDashboard() {
             <Activity className="w-8 h-8 text-emerald-600 animate-pulse" />
           </div>
           <div>
-            <p className="text-gray-500 text-sm font-bold">Evaluaciones Totales</p>
+            <p className="text-gray-500 text-sm font-bold uppercase tracking-wide">Evaluaciones Totales</p>
             <h3 className="text-3xl font-extrabold text-gray-900">{estadisticas.total}</h3>
           </div>
         </div>
@@ -112,7 +121,7 @@ export default function RealTimeDashboard() {
             <BarChart3 className="w-8 h-8 text-blue-600" />
           </div>
           <div>
-            <p className="text-gray-500 text-sm font-bold">Promedio Global (Bruto)</p>
+            <p className="text-gray-500 text-sm font-bold uppercase tracking-wide">Promedio Global</p>
             <h3 className="text-3xl font-extrabold text-gray-900">{estadisticas.promedioGral}</h3>
           </div>
         </div>
@@ -121,7 +130,7 @@ export default function RealTimeDashboard() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-4 bg-gray-50 border-b border-gray-200 flex items-center space-x-2">
           <Clock className="w-5 h-5 text-gray-500" />
-          <h3 className="font-bold text-gray-900">Últimas Evaluaciones (En Vivo)</h3>
+          <h3 className="font-bold text-gray-900">Últimas 50 Evaluaciones (En Vivo)</h3>
         </div>
         <div className="overflow-x-auto max-h-100 overflow-y-auto">
           <table className="w-full text-sm text-left">
@@ -147,7 +156,9 @@ export default function RealTimeDashboard() {
                     </span>
                   </td>
                   <td className="px-4 py-3 font-mono font-bold text-gray-900">{ev.calificacion}</td>
-                  <td className="px-4 py-3 text-gray-600">{new Date(ev.created_at).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {ev.created_at ? new Date(ev.created_at).toLocaleString() : 'Reciente'}
+                  </td>
                 </tr>
               ))}
               {evaluaciones.length === 0 && (

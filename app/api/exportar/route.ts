@@ -4,7 +4,7 @@ import ExcelJS from 'exceljs';
 
 export async function GET() {
   try {
-    // 1. Inicializar cliente de Supabase desde las variables de entorno
+    // 1. Inicializar cliente de Supabase
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     
@@ -14,22 +14,19 @@ export async function GET() {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // 2. Extraer todos los datos necesarios (Ponencias, Evaluaciones y Participantes)
+    // 2. Extraer todos los datos sin forzar ordenamientos que puedan colapsar SQL
     const { data: ponencias, error: errPonencias } = await supabase
       .from('ponencias')
-      .select('*')
-      .order('fecha_programada', { ascending: true });
+      .select('*');
       
     if (errPonencias) throw errPonencias;
 
     const { data: evaluaciones, error: errEvaluaciones } = await supabase
       .from('evaluaciones')
-      .select('*')
-      .order('created_at', { ascending: true });
+      .select('*');
       
     if (errEvaluaciones) throw errEvaluaciones;
 
-    // Extraemos participantes del módulo de Ponencias para saber quién es el evaluador
     const { data: participantes, error: errParticipantes } = await supabase
       .from('base_datos_participantes')
       .select('correo, nombre, apellido, rol, numero_documento')
@@ -37,25 +34,30 @@ export async function GET() {
       
     if (errParticipantes) throw errParticipantes;
 
-    // Mapeo rápido de participantes por correo para cruce de datos eficiente
     const mapParticipantes: Record<string, any> = {};
     participantes?.forEach(p => {
       mapParticipantes[p.correo] = p;
     });
 
-    // 3. Crear el archivo Excel y sus propiedades
+    // Ordenar ponencias en memoria (JavaScript seguro)
+    const ponenciasOrdenadas = (ponencias || []).sort((a, b) => {
+      const dateA = new Date(a.fecha_programada || 0).getTime();
+      const dateB = new Date(b.fecha_programada || 0).getTime();
+      return dateA - dateB;
+    });
+
+    // 3. Crear el archivo Excel
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Sistema de Gestión ACOFI';
     workbook.created = new Date();
 
     // =========================================================================
-    // HOJA 1: CONSOLIDADO DE PONENCIAS (Con Fórmulas Matemáticas y Ponderaciones)
+    // HOJA 1: CONSOLIDADO DE PONENCIAS
     // =========================================================================
     const sheetConsolidado = workbook.addWorksheet('Consolidado Ponencias', {
-      views: [{ state: 'frozen', ySplit: 1 }] // Congelar la primera fila
+      views: [{ state: 'frozen', ySplit: 1 }]
     });
 
-    // Configurar Columnas
     sheetConsolidado.columns = [
       { header: 'Código Ponencia', key: 'codigo', width: 20 },
       { header: 'Título de la Ponencia', key: 'titulo', width: 50 },
@@ -66,17 +68,13 @@ export async function GET() {
       { header: 'Ponderación (100%)', key: 'ponderacion', width: 25 },
     ];
 
-    // Estilo de la Cabecera (Hoja 1)
     const headerRow1 = sheetConsolidado.getRow(1);
     headerRow1.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
     headerRow1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF311B42' } };
     headerRow1.alignment = { vertical: 'middle', horizontal: 'center' };
 
-    // Insertar datos de ponencias e inyectar fórmulas de Excel
-    ponencias?.forEach((p, index) => {
-      const rowNumber = index + 2; // Fila real en Excel (la 1 es cabecera)
-      
-      // Pre-calcular sumas para tener el dato en bruto
+    ponenciasOrdenadas.forEach((p, index) => {
+      const rowNumber = index + 2;
       const evsDePonencia = evaluaciones?.filter(e => e.codigo_ponencia === p.codigo_ponencia) || [];
       const totalVotos = evsDePonencia.length;
       const sumaCalificaciones = evsDePonencia.reduce((acc, curr) => acc + (Number(curr.calificacion) || 0), 0);
@@ -84,23 +82,19 @@ export async function GET() {
       sheetConsolidado.addRow({
         codigo: p.codigo_ponencia,
         titulo: p.nombre_ponencia,
-        fecha: p.fecha_programada,
+        fecha: p.fecha_programada || "Sin Fecha",
         total: totalVotos,
         suma: sumaCalificaciones,
-        // Inyección de Fórmulas Matemáticas (Se calculan en tiempo real en el Excel del usuario)
-        // Promedio = Suma / Total (Con control de división por cero IF(D2>0, E2/D2, 0))
         promedio: totalVotos > 0 ? { formula: `IF(D${rowNumber}>0, E${rowNumber}/D${rowNumber}, 0)` } : 0,
-        // Ponderación (Ejemplo: Asumiendo que el máximo es 1000, calculamos el porcentaje sobre 100%)
         ponderacion: totalVotos > 0 ? { formula: `IF(F${rowNumber}>0, (F${rowNumber}/1000)*100, 0)` } : 0
       });
       
-      // Formato numérico a las celdas de promedio y ponderación
       sheetConsolidado.getCell(`F${rowNumber}`).numFmt = '0.00';
       sheetConsolidado.getCell(`G${rowNumber}`).numFmt = '0.00"%"';
     });
 
     // =========================================================================
-    // HOJA 2: DATOS CRUDOS (Historial detallado de cada evaluación y evaluador)
+    // HOJA 2: AUDITORÍA DETALLADA
     // =========================================================================
     const sheetDetalle = workbook.addWorksheet('Auditoría Evaluaciones', {
       views: [{ state: 'frozen', ySplit: 1 }]
@@ -114,21 +108,26 @@ export async function GET() {
       { header: 'Correo del Evaluador', key: 'correo_ev', width: 35 },
       { header: 'Documento Evaluador', key: 'doc_ev', width: 25 },
       { header: 'Rol del Evaluador', key: 'rol_ev', width: 20 },
-      { header: 'ID Evaluación (Sistema)', key: 'id_ev', width: 40 },
+      { header: 'ID Evaluación', key: 'id_ev', width: 40 },
     ];
 
-    // Estilo de la Cabecera (Hoja 2)
     const headerRow2 = sheetDetalle.getRow(1);
     headerRow2.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
     headerRow2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC81474' } };
     headerRow2.alignment = { vertical: 'middle', horizontal: 'center' };
 
-    // Insertar cada voto cruzando los datos con la tabla de participantes
-    evaluaciones?.forEach((ev) => {
+    // Ordenar evaluaciones en memoria
+    const evaluacionesOrdenadas = (evaluaciones || []).sort((a, b) => {
+      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return dateB - dateA; // Más recientes primero
+    });
+
+    evaluacionesOrdenadas.forEach((ev) => {
       const part = mapParticipantes[ev.correo_usuario] || {};
       
       sheetDetalle.addRow({
-        fecha_reg: new Date(ev.created_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' }),
+        fecha_reg: ev.created_at ? new Date(ev.created_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' }) : 'Fecha no registrada',
         codigo_pon: ev.codigo_ponencia,
         calificacion: Number(ev.calificacion),
         nombre_ev: `${part.nombre || 'Participante'} ${part.apellido || 'No Registrado'}`.trim(),
@@ -139,10 +138,8 @@ export async function GET() {
       });
     });
 
-    // 4. Generar Buffer final
     const buffer = await workbook.xlsx.writeBuffer();
 
-    // 5. Retornar archivo al navegador con los headers correctos de descarga
     return new NextResponse(buffer, {
       status: 200,
       headers: {
