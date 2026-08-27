@@ -13,11 +13,11 @@ export default function RealTimeDashboard() {
     try {
       setError(null);
       
-      // 1. Cargar las evaluaciones SIN ordenamiento SQL para evitar colapso si falta la columna
+      // Consultamos TODO sin forzar ordenamiento en Supabase para evitar errores de columnas faltantes
       const { data: rawEvData, error: evError } = await supabase
         .from("evaluaciones")
         .select("*")
-        .limit(1000); // Traemos una muestra segura para ordenar en memoria
+        .limit(2000); 
       
       if (evError) throw evError;
       if (!rawEvData || rawEvData.length === 0) {
@@ -26,14 +26,13 @@ export default function RealTimeDashboard() {
         return;
       }
 
-      // 2. Ordenar de forma segura en JavaScript (Si no hay created_at asume 0 y no colapsa)
+      // Ordenamos en memoria usando JavaScript, a prueba de fallos
       const evDataSorted = rawEvData.sort((a, b) => {
         const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
         const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
         return dateB - dateA;
-      }).slice(0, 50); // Tomamos solo las 50 más recientes para la tabla visual
+      }).slice(0, 50); // Tomamos solo los 50 más recientes para el renderizado visual
 
-      // 3. Extraer correos y buscar sus nombres en base de datos de "Ponencias"
       const correos = evDataSorted.map(e => e.correo_usuario);
       
       const { data: partData, error: partError } = await supabase
@@ -44,7 +43,6 @@ export default function RealTimeDashboard() {
         
       if (partError) throw partError;
 
-      // 4. Crear mapa de nombres para evitar errores de JOIN
       const mapParticipantes: Record<string, any> = {};
       if (partData) {
         partData.forEach(p => {
@@ -52,20 +50,19 @@ export default function RealTimeDashboard() {
         });
       }
 
-      // 5. Ensamblar los datos para mostrar
       const dataUnida = evDataSorted.map(ev => ({
         ...ev,
-        participante: mapParticipantes[ev.correo_usuario] || { nombre: "Desconocido", apellido: "", rol: "N/A" }
+        participante: mapParticipantes[ev.correo_usuario] || { nombre: "Desconocido", apellido: "", rol: "Participante" }
       }));
 
       setEvaluaciones(dataUnida);
       
-      // Estadísticas Globales (Calculadas sobre todo el set, no solo sobre los 50 visuales)
+      // Estadísticas Globales
       calcularEstadisticas(rawEvData);
       
     } catch (err: any) {
       console.error("Error en dashboard:", err);
-      setError(err.message);
+      setError("Error cargando los datos en vivo. " + err.message);
     }
   };
 
@@ -79,7 +76,6 @@ export default function RealTimeDashboard() {
   useEffect(() => {
     cargarDatosIniciales();
 
-    // Suscripción en Tiempo Real
     const canal = supabase
       .channel("evaluaciones-db")
       .on(
@@ -121,7 +117,7 @@ export default function RealTimeDashboard() {
             <BarChart3 className="w-8 h-8 text-blue-600" />
           </div>
           <div>
-            <p className="text-gray-500 text-sm font-bold uppercase tracking-wide">Promedio Global</p>
+            <p className="text-gray-500 text-sm font-bold uppercase tracking-wide">Promedio Global (Bruto)</p>
             <h3 className="text-3xl font-extrabold text-gray-900">{estadisticas.promedioGral}</h3>
           </div>
         </div>
@@ -130,7 +126,7 @@ export default function RealTimeDashboard() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-4 bg-gray-50 border-b border-gray-200 flex items-center space-x-2">
           <Clock className="w-5 h-5 text-gray-500" />
-          <h3 className="font-bold text-gray-900">Últimas 50 Evaluaciones (En Vivo)</h3>
+          <h3 className="font-bold text-gray-900">Últimas Evaluaciones (En Vivo)</h3>
         </div>
         <div className="overflow-x-auto max-h-100 overflow-y-auto">
           <table className="w-full text-sm text-left">
