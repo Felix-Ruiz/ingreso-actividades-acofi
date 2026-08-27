@@ -25,54 +25,47 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         const html5QrCode = new Html5Qrcode("qr-reader-custom");
         scannerRef.current = html5QrCode;
         
-        // Cuadro de lectura más amplio y fotogramas fluidos
+        // ÚNICA MODIFICACIÓN: Cuadro de lectura más grande (280) y 15 FPS
         const config = { fps: 15, qrbox: { width: 280, height: 280 } };
         
-        // CASCADA DE CÁMARA (SIN ZOOM DIGITAL PARA NO ARRUINAR EL ENFOQUE)
-        try {
-          // Intento 1: Exigir cámara trasera en Alta Resolución (1080p).
-          // Esto garantiza que tengas suficientes píxeles para leer el QR desde lejos donde la cámara sí enfoca naturalmente.
-          await html5QrCode.start(
-            { 
-              facingMode: "environment",
-              width: { ideal: 1920, min: 1280 },
-              height: { ideal: 1080, min: 720 }
-            }, 
-            config, 
-            onScanSuccess, 
-            () => {}
+        // ESTA LÍNEA ES VITAL: Es la que dispara el popup de permisos del navegador
+        const cameras = await Html5Qrcode.getCameras();
+        
+        if (cameras && cameras.length > 0) {
+          let selectedCameraId = cameras[0].id;
+          
+          // Filtrar buscando las cámaras traseras
+          const backCameras = cameras.filter(c => 
+            c.label.toLowerCase().includes('back') || 
+            c.label.toLowerCase().includes('trasera') || 
+            c.label.toLowerCase().includes('rear') || 
+            c.label.toLowerCase().includes('environment')
           );
-          isScanningRef.current = true;
-        } catch (errEnvHD) {
-          // Intento 2: Si el navegador rechaza la resolución, lanzamos la cámara trasera estándar
-          try {
-            await html5QrCode.start(
-              { facingMode: "environment" }, 
-              config, 
-              onScanSuccess, 
-              () => {}
+
+          if (backCameras.length > 0) {
+            // EVITAR LA CÁMARA ULTRA-WIDE que no tiene autoenfoque
+            const mainBack = backCameras.find(c => 
+              !c.label.toLowerCase().includes('ultra') && 
+              !c.label.toLowerCase().includes('wide') &&
+              !c.label.toLowerCase().includes('0.5x') &&
+              !c.label.toLowerCase().includes('telephoto')
             );
-            isScanningRef.current = true;
-          } catch (errEnvBasica) {
-            // Intento 3: Si no hay cámara trasera (PC/Laptop), lanzamos cámara frontal
-            try {
-              await html5QrCode.start(
-                { facingMode: "user" }, 
-                config, 
-                onScanSuccess, 
-                () => {}
-              );
-              isScanningRef.current = true;
-            } catch (errUser) {
-              setResultado({ 
-                tipo: "error", 
-                mensaje: "Por favor, otorga permisos de cámara en tu navegador y recarga la página." 
-              });
-            }
+            selectedCameraId = mainBack ? mainBack.id : backCameras[0].id;
           }
+
+          // Iniciar la cámara seleccionada (Con el popup de permisos funcionando)
+          await html5QrCode.start(selectedCameraId, config, onScanSuccess, () => {});
+          isScanningRef.current = true;
+
+        } else {
+          setResultado({ tipo: "error", mensaje: "No se detectaron cámaras en el dispositivo." });
         }
       } catch (err) {
         console.error("Error general inicializando cámara:", err);
+        setResultado({ 
+          tipo: "error", 
+          mensaje: "Por favor, otorga permisos de cámara en tu navegador y recarga la página." 
+        });
       }
     };
 
@@ -240,7 +233,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         </div>
       )}
 
-      {/* Contenedor Principal de la Cámara con clases de Tailwind corregidas */}
+      {/* Contenedor Principal de la Cámara */}
       <div className="mt-8 relative overflow-hidden rounded-xl bg-black min-h-87.5 flex items-center justify-center shadow-inner">
         <div id="qr-reader-custom" className="w-full h-full" style={{ display: resultado ? 'none' : 'block' }}></div>
         
@@ -256,14 +249,14 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
               {resultado.mensaje}
             </p>
             {resultado.tipo !== "error" && (
-               <p className="text-gray-500 text-sm mt-8 animate-pulse font-medium">Reactivando sensor óptico...</p>
+               <p className="text-gray-500 text-sm mt-8 animate-pulse font-medium">Reactivando escáner...</p>
             )}
           </div>
         )}
       </div>
 
       <p className="text-center text-xs text-gray-500 mt-4 font-medium tracking-wide">
-        Aleja tu celular 15-20cm del código. El lente leerá el código nítidamente sin necesidad de acercarlo.
+        Aleja tu celular 15-20cm del código. La lectura ahora es más amplia.
       </p>
     </div>
   );
