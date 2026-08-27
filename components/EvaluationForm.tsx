@@ -55,14 +55,17 @@ export default function EvaluationForm() {
     const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 
     try {
+      // 1. Buscamos al usuario ESTRICTAMENTE en el Excel/Módulo de Ponencias
       const { data: usuario, error: errUsuario } = await supabase
         .from("base_datos_participantes")
         .select("nombre, rol")
         .eq("correo", correoLimpio)
+        .eq("modulo", "Ponencias")
         .single();
 
       if (!usuario || errUsuario) throw new Error(t.uNotExist);
 
+      // 2. Si NO es Moderador, validamos que haya hecho Check-in en el módulo Ponencias
       if (usuario.rol !== "Moderador") {
         const { data: checkin } = await supabase
           .from("check_ins")
@@ -70,11 +73,13 @@ export default function EvaluationForm() {
           .eq("correo_usuario", correoLimpio)
           .eq("dia_evento", todayStr)
           .eq("estado", "ingresó")
+          .eq("modulo", "Ponencias")
           .single();
 
         if (!checkin) throw new Error(t.noCheckin);
       }
 
+      // 3. Validar que el código de ponencia exista y sea para hoy
       const { data: ponencia, error: errPonencia } = await supabase
         .from("ponencias")
         .select("fecha_programada")
@@ -84,6 +89,7 @@ export default function EvaluationForm() {
       if (!ponencia || errPonencia) throw new Error(t.pNotExist);
       if (ponencia.fecha_programada !== todayStr) throw new Error(t.dateInvalid);
 
+      // 4. Validar si ya envió una calificación previa
       const { data: evaluacionPrevia } = await supabase
         .from("evaluaciones")
         .select("id")
@@ -93,13 +99,14 @@ export default function EvaluationForm() {
 
       if (evaluacionPrevia) throw new Error(t.already);
 
+      // 5. Guardar la calificación
       const { error: errInsert } = await supabase
         .from("evaluaciones")
         .insert([
-          {
-            correo_usuario: correoLimpio,
-            codigo_ponencia: codigoLimpio,
-            calificacion: Number(rating),
+          { 
+            correo_usuario: correoLimpio, 
+            codigo_ponencia: codigoLimpio, 
+            calificacion: Number(rating) 
           }
         ]);
 
