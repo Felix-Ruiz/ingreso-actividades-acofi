@@ -3,10 +3,10 @@
 import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase } from "../lib/supabase";
-import { CheckCircle, XCircle, WifiOff, RefreshCw, Camera } from "lucide-react";
+import { CheckCircle, XCircle, WifiOff, RefreshCw, Camera, ImagePlus } from "lucide-react";
 
 export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: string }) {
-  const [resultado, setResultado] = useState<{ tipo: "exito" | "error" | "offline"; mensaje: string; nombre?: string } | null>(null);
+  const [resultado, setResultado] = useState<{ tipo: "exito" | "error" | "offline" | "cargando"; mensaje: string; nombre?: string } | null>(null);
   const [pendientesSync, setPendientesSync] = useState<string[]>([]);
   
   const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -38,7 +38,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
           } catch (errUser) {
             setResultado({ 
               tipo: "error", 
-              mensaje: "Por favor, otorga permisos de cámara en tu navegador o usa el botón de Cámara Nativa." 
+              mensaje: "Por favor, otorga permisos de cámara en tu navegador o usa el botón de Tomar Foto." 
             });
           }
         }
@@ -64,7 +64,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
   };
 
   const onScanSuccess = async (textoDecodificado: string) => {
-    if (resultado) return; // Evitar dobles escaneos mientras se muestra un resultado
+    if (resultado && resultado.tipo !== "cargando") return; 
     
     if (scannerRef.current && isScanningRef.current) {
       isScanningRef.current = false;
@@ -151,10 +151,11 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
     }, 2500);
   };
 
-  // --- NUEVA FUNCIÓN PARA ESCANEO DESDE FOTO NATIVAL ---
   const procesarFotoNativa = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
+      setResultado({ tipo: "cargando", mensaje: "Analizando fotografía..." }); // Indicador visual
+      
       try {
         const html5QrCode = new Html5Qrcode("qr-reader-custom");
         const decodedText = await html5QrCode.scanFile(file, true);
@@ -165,7 +166,6 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
           mensaje: "No se detectó ningún QR válido en la foto. Intenta acercarte más o enfocar mejor." 
         });
       }
-      // Limpiar el input para que permita subir la misma foto si se necesita
       e.target.value = "";
     }
   };
@@ -230,7 +230,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         </div>
       )}
 
-      {/* BOTÓN MAGICO DE CÁMARA NATIVA */}
+      {/* BOTÓN MAGICO DE CÁMARA NATIVA CON INSTRUCCIONES CLARAS */}
       <div className="mt-10 mb-2 flex flex-col items-center">
         <input 
           type="file" 
@@ -242,32 +242,43 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         />
         <button 
           onClick={() => fileInputRef.current?.click()}
-          className="w-full max-w-sm bg-[#c81474] hover:bg-pink-800 text-white font-bold py-3.5 px-4 rounded-xl transition-colors shadow-md flex items-center justify-center space-x-2 animate-bounce hover:animate-none"
+          className="w-full max-w-sm bg-[#c81474] hover:bg-pink-800 text-white font-bold py-4 px-4 rounded-xl transition-all shadow-md flex items-center justify-center space-x-2 hover:scale-[1.02]"
         >
-          <Camera className="w-5 h-5" />
-          <span>Usar Cámara Nativa (Enfoque Perfecto)</span>
+          <Camera className="w-6 h-6" />
+          <span className="text-lg">Tomar Foto al QR</span>
         </button>
-        <p className="text-center text-xs text-gray-500 mt-3 font-medium">
-          Si el código es muy pequeño o el navegador se ve borroso, usa este botón para abrir la cámara de tu celular con autoenfoque y zoom.
-        </p>
+        
+        <div className="mt-4 bg-gray-50 border border-gray-200 rounded-xl p-4 max-w-sm w-full">
+          <p className="text-sm text-gray-800 font-bold mb-2 flex items-center">
+            <ImagePlus className="w-4 h-4 mr-2 text-[#c81474]" />
+            ¿Cómo usar esta opción?
+          </p>
+          <ol className="text-xs text-gray-600 space-y-1.5 ml-6 list-decimal font-medium">
+            <li>Presiona el botón rosado de arriba.</li>
+            <li>Se abrirá la cámara de tu celular. Haz todo el zoom que necesites.</li>
+            <li><strong>Tómale una foto</strong> al código QR.</li>
+            <li>Presiona <strong>"Aceptar"</strong> (o la palomita ✔️). El sistema analizará la foto al instante.</li>
+          </ol>
+        </div>
       </div>
 
       {/* Contenedor Principal de la Cámara en Vivo (Para QRs grandes o normales) */}
-      <div className="mt-4 relative overflow-hidden rounded-xl bg-black min-h-87.5 flex items-center justify-center shadow-inner">
+      <div className="mt-6 relative overflow-hidden rounded-xl bg-black min-h-87.5 flex items-center justify-center shadow-inner">
         <div id="qr-reader-custom" className="w-full h-full" style={{ display: resultado ? 'none' : 'block' }}></div>
         
-        {/* Pantalla de Resultados (Éxito o Error) */}
+        {/* Pantalla de Resultados (Éxito, Error o Cargando) */}
         {resultado && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center p-6 bg-white/95 backdrop-blur-md animate-in fade-in duration-200">
             {resultado.tipo === "exito" && <CheckCircle className="w-24 h-24 text-green-500 mb-4 drop-shadow-md" />}
             {resultado.tipo === "error" && <XCircle className="w-24 h-24 text-red-500 mb-4 drop-shadow-md" />}
             {resultado.tipo === "offline" && <WifiOff className="w-24 h-24 text-orange-500 mb-4 drop-shadow-md" />}
+            {resultado.tipo === "cargando" && <RefreshCw className="w-20 h-20 text-blue-500 mb-4 animate-spin drop-shadow-md" />}
             
             {resultado.nombre && <h3 className="text-3xl font-extrabold text-gray-900 mb-2 text-center leading-tight">{resultado.nombre}</h3>}
-            <p className={`text-center font-bold text-xl ${resultado.tipo === "error" ? "text-red-600" : "text-gray-700"}`}>
+            <p className={`text-center font-bold text-xl ${resultado.tipo === "error" ? "text-red-600" : resultado.tipo === "cargando" ? "text-blue-600" : "text-gray-700"}`}>
               {resultado.mensaje}
             </p>
-            {resultado.tipo !== "error" && (
+            {resultado.tipo !== "error" && resultado.tipo !== "cargando" && (
                <p className="text-gray-500 text-sm mt-8 animate-pulse font-medium">Reactivando escáner en vivo...</p>
             )}
           </div>
