@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Edit2, Save, X, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Edit2, Save, X, RefreshCw, Search, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 
 type TabType = "participantes" | "ponencias" | "checkins";
 
@@ -15,9 +15,14 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   const [editForm, setEditForm] = useState<any>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Paginación
+  const [paginaActual, setPaginaActual] = useState(1);
+  const ELEMENTOS_POR_PAGINA = 100;
+
   const fetchData = async () => {
     setLoading(true);
     setSelectedIds(new Set());
+    setPaginaActual(1);
     try {
       let table = "";
       let orderCol = "";
@@ -43,7 +48,6 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
         query = query.eq("modulo", moduloSeleccionado);
       }
       
-      // Incrementamos el límite a 5000 para que la búsqueda en memoria funcione con todos
       const { data: result, error } = await query
         .order(orderCol, { ascending: isAscending })
         .limit(5000);
@@ -88,6 +92,10 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     setEditingId(null); 
   }, [activeTab, moduloSeleccionado]);
 
+  useEffect(() => {
+    setPaginaActual(1);
+  }, [searchTerm]);
+
   const iniciarEdicion = (item: any, idKey: string) => { 
     setEditingId(item[idKey]); 
     setEditForm({ ...item }); 
@@ -109,12 +117,17 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     }
   };
 
-  // Filtramos la data en memoria y RECORTE PARA RENDERIZAR SOLO 100 FILAS (Elimina la lentitud)
+  // Filtrado general
   const allFilteredData = data.filter((item) => 
     JSON.stringify(item).toLowerCase().includes(searchTerm.toLowerCase())
   );
   
-  const filteredData = allFilteredData.slice(0, 100);
+  // Paginación de 100 en 100
+  const totalPaginas = Math.ceil(allFilteredData.length / ELEMENTOS_POR_PAGINA);
+  const paginatedData = allFilteredData.slice(
+    (paginaActual - 1) * ELEMENTOS_POR_PAGINA, 
+    paginaActual * ELEMENTOS_POR_PAGINA
+  );
 
   const getIdKey = () => {
     if (activeTab === "participantes") return "correo";
@@ -123,12 +136,15 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === filteredData.length && filteredData.length > 0) {
+    // Si la selección abarca toda la página actual, la limpiamos. Si no, seleccionamos toda la página.
+    const currentPageIds = paginatedData.map(item => item[getIdKey()]);
+    const areAllCurrentSelected = currentPageIds.every(id => selectedIds.has(id));
+
+    if (areAllCurrentSelected && currentPageIds.length > 0) {
       setSelectedIds(new Set());
     } else {
-      const newSet = new Set<string>();
-      const idKey = getIdKey();
-      filteredData.forEach(item => newSet.add(item[idKey]));
+      const newSet = new Set<string>(selectedIds);
+      currentPageIds.forEach(id => newSet.add(id));
       setSelectedIds(newSet);
     }
   };
@@ -248,7 +264,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
               <th className="px-4 py-3 w-10">
                 <input 
                   type="checkbox" 
-                  checked={filteredData.length > 0 && selectedIds.size === filteredData.length}
+                  checked={paginatedData.length > 0 && paginatedData.every(item => selectedIds.has(item[getIdKey()]))}
                   onChange={toggleSelectAll}
                   className="w-4 h-4 rounded text-[#c81474] focus:ring-[#c81474]"
                 />
@@ -281,7 +297,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {filteredData.map((item, index) => {
+            {paginatedData.map((item, index) => {
               const rowId = item[getIdKey()];
               const isSelected = selectedIds.has(rowId);
               
@@ -445,17 +461,34 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                 </td>
               </tr>
             )}
-            
-            {allFilteredData.length > 100 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-4 text-center text-gray-400 text-xs font-bold bg-gray-50">
-                  Mostrando 100 de {allFilteredData.length} resultados. Usa el buscador para encontrar un registro específico.
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
+
+      {/* CONTROLES DE PAGINACIÓN */}
+      {totalPaginas > 1 && (
+        <div className="flex items-center justify-between p-4 bg-gray-50 border-t border-gray-200">
+          <span className="text-sm text-gray-600 font-medium">
+            Mostrando {((paginaActual - 1) * ELEMENTOS_POR_PAGINA) + 1} - {Math.min(paginaActual * ELEMENTOS_POR_PAGINA, allFilteredData.length)} de {allFilteredData.length} registros
+          </span>
+          <div className="flex space-x-2">
+            <button 
+              onClick={() => setPaginaActual(p => Math.max(1, p - 1))}
+              disabled={paginaActual === 1}
+              className="p-2 rounded-lg bg-white border border-gray-300 text-gray-700 disabled:opacity-50 hover:bg-gray-100 transition-colors shadow-sm"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setPaginaActual(p => Math.min(totalPaginas, p + 1))}
+              disabled={paginaActual === totalPaginas}
+              className="p-2 rounded-lg bg-white border border-gray-300 text-gray-700 disabled:opacity-50 hover:bg-gray-100 transition-colors shadow-sm"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
