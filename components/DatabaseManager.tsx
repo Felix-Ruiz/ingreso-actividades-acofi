@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Edit2, Save, X, RefreshCw, Search, Trash2, ChevronLeft, ChevronRight, User, FileText } from "lucide-react";
+import { Edit2, Save, X, RefreshCw, Search, Trash2, ChevronLeft, ChevronRight, User, FileText, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 
 type TabType = "participantes" | "ponencias" | "checkins";
 
@@ -13,14 +13,23 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Estados del Modal de Edición Moderno
+  // Estados del Modal de Edición
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
 
+  // Estados para UI Premium (Toast y Modal Confirmación)
+  const [toast, setToast] = useState<{ tipo: "exito" | "error"; mensaje: string } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ titulo: string; mensaje: string; onConfirm: () => void } | null>(null);
+
   // Paginación
   const [paginaActual, setPaginaActual] = useState(1);
   const ELEMENTOS_POR_PAGINA = 100;
+
+  const mostrarToast = (tipo: "exito" | "error", mensaje: string) => {
+    setToast({ tipo, mensaje });
+    setTimeout(() => setToast(null), 4000);
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -108,7 +117,6 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     setSaving(true);
     try {
       if (activeTab === "participantes") {
-        // Enviar SOLAMENTE los campos permitidos para evitar errores de base de datos
         const { error } = await supabase
           .from("base_datos_participantes")
           .update({
@@ -134,10 +142,10 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
       }
       
       setIsEditModalOpen(false);
+      mostrarToast("exito", "Cambios guardados correctamente.");
       fetchData(); 
     } catch (error: any) { 
-      console.error("Error al guardar:", error);
-      alert("Error guardando los cambios: " + error.message);
+      mostrarToast("error", "Error guardando: " + error.message);
     } finally {
       setSaving(false);
     }
@@ -182,10 +190,18 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     setSelectedIds(newSet);
   };
 
-  const eliminarSeleccionados = async () => {
+  const intentarEliminarSeleccionados = () => {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`¿Estás seguro de que deseas eliminar permanentemente ${selectedIds.size} registro(s)?`)) return;
+    
+    setConfirmModal({
+      titulo: "Eliminar Registros",
+      mensaje: `Estás a punto de eliminar permanentemente ${selectedIds.size} registro(s) de la base de datos. Esta acción no se puede deshacer. ¿Continuar?`,
+      onConfirm: ejecutarEliminacion
+    });
+  };
 
+  const ejecutarEliminacion = async () => {
+    setConfirmModal(null);
     setLoading(true);
     try {
       let table = "";
@@ -203,10 +219,11 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
 
       if (error) throw error;
       
+      mostrarToast("exito", `${selectedIds.size} registros eliminados con éxito.`);
       setSelectedIds(new Set());
       fetchData();
     } catch (error: any) {
-      alert("Error al eliminar: " + error.message);
+      mostrarToast("error", "Error al eliminar: " + error.message);
     } finally {
       setLoading(false);
     }
@@ -214,6 +231,44 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
 
   return (
     <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden relative">
+      
+      {/* Notificación Toast Premium */}
+      {toast && (
+        <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-70 px-6 py-3 rounded-full shadow-2xl flex items-center space-x-2 font-bold text-sm animate-in fade-in slide-in-from-top-5 ${toast.tipo === "exito" ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
+          {toast.tipo === "exito" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span>{toast.mensaje}</span>
+        </div>
+      )}
+
+      {/* Modal de Confirmación Nativo */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8">
+              <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mb-6 mx-auto">
+                <AlertCircle className="w-8 h-8 text-red-600" />
+              </div>
+              <h3 className="text-xl font-extrabold text-center text-gray-900 mb-2">{confirmModal.titulo}</h3>
+              <p className="text-center text-gray-600 text-sm mb-8 font-medium leading-relaxed">{confirmModal.mensaje}</p>
+              <div className="flex space-x-3">
+                <button 
+                  onClick={() => setConfirmModal(null)} 
+                  className="flex-1 bg-white border-2 border-gray-200 text-gray-700 font-bold py-3.5 rounded-xl hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={confirmModal.onConfirm} 
+                  className="flex-1 bg-red-600 text-white font-bold py-3.5 rounded-xl hover:bg-red-700 transition-colors shadow-lg shadow-red-600/30"
+                >
+                  Sí, eliminar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="absolute top-4 right-4 z-20 bg-emerald-600 text-white px-3 py-1 rounded-full text-xs font-bold shadow-md">
         Datos de: {moduloSeleccionado}
       </div>
@@ -264,7 +319,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
         <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
           {selectedIds.size > 0 && (
             <button 
-              onClick={eliminarSeleccionados}
+              onClick={intentarEliminarSeleccionados}
               className="flex items-center space-x-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm"
             >
               <Trash2 className="w-4 h-4" />
@@ -353,7 +408,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                     <td className="px-4 py-3 text-right">
                       <button 
                         onClick={() => iniciarEdicion(item)} 
-                        className="text-gray-500 hover:text-[#c81474] transition-colors p-2 bg-gray-100 rounded-lg"
+                        className="text-gray-500 hover:text-[#c81474] transition-colors p-2 bg-gray-100 hover:bg-pink-50 rounded-lg"
                       >
                         <Edit2 className="w-4 h-4"/>
                       </button>
@@ -376,7 +431,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                     <td className="px-4 py-3 text-right">
                       <button 
                         onClick={() => iniciarEdicion(item)} 
-                        className="text-gray-500 hover:text-[#c81474] transition-colors p-2 bg-gray-100 rounded-lg"
+                        className="text-gray-500 hover:text-[#c81474] transition-colors p-2 bg-gray-100 hover:bg-pink-50 rounded-lg"
                       >
                         <Edit2 className="w-4 h-4"/>
                       </button>
@@ -384,7 +439,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                   </>
                 )}
                 
-                {/* Tabla de Check-ins (No editable directamente) */}
+                {/* Tabla de Check-ins */}
                 {activeTab === "checkins" && (
                   <>
                     <td className="px-4 py-3 font-bold text-gray-900">
@@ -445,7 +500,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
       {/* MODAL DE EDICIÓN MODERNO */}
       {isEditModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center bg-[#311b42] p-5 text-white">
               <h3 className="font-extrabold text-lg flex items-center space-x-2">
                 {activeTab === "participantes" ? <User className="w-5 h-5" /> : <FileText className="w-5 h-5" />}

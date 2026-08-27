@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { UserPlus, Trash2, ShieldAlert, ShieldCheck } from "lucide-react";
+import { UserPlus, Trash2, ShieldAlert, ShieldCheck, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 
 export default function UserManagement() {
   const [usuarios, setUsuarios] = useState<any[]>([]);
@@ -12,6 +12,15 @@ export default function UserManagement() {
   const [nuevoPassword, setNuevoPassword] = useState("");
   const [nuevoRol, setNuevoRol] = useState<"Admin" | "Master">("Admin");
   const [procesando, setProcesando] = useState(false);
+
+  // UI Premium
+  const [toast, setToast] = useState<{ tipo: "exito" | "error"; mensaje: string } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ correo: string; titulo: string; mensaje: string } | null>(null);
+
+  const mostrarToast = (tipo: "exito" | "error", mensaje: string) => {
+    setToast({ tipo, mensaje });
+    setTimeout(() => setToast(null), 5000);
+  };
 
   const cargarUsuarios = async () => {
     setCargando(true);
@@ -37,7 +46,7 @@ export default function UserManagement() {
   const agregarUsuario = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nuevoCorreo.trim() || !nuevoPassword.trim()) {
-      alert("Debes ingresar un correo y una contraseña.");
+      mostrarToast("error", "Debes ingresar un correo y una contraseña.");
       return;
     }
 
@@ -45,18 +54,15 @@ export default function UserManagement() {
     const correoLimpio = nuevoCorreo.trim().toLowerCase();
 
     try {
-      // 1. Crear el usuario en la Autenticación de Supabase
       const { error: authError } = await supabase.auth.signUp({
         email: correoLimpio,
         password: nuevoPassword,
       });
 
-      // Ignoramos el error si el usuario ya existe en Auth, para poder actualizarle su rol
       if (authError && !authError.message.includes("already registered")) {
-        throw new Error("Error creando credenciales: " + authError.message);
+        throw new Error("Credenciales: " + authError.message);
       }
 
-      // 2. Guardar el rol en nuestra tabla de permisos
       const { error: roleError } = await supabase
         .from("staff_roles")
         .upsert([{ correo: correoLimpio, rol: nuevoRol }]);
@@ -68,16 +74,18 @@ export default function UserManagement() {
       setNuevoRol("Admin");
       cargarUsuarios();
       
-      alert(`Usuario ${correoLimpio} agregado exitosamente como ${nuevoRol}. Puede iniciar sesión con la contraseña asignada.`);
+      mostrarToast("exito", `Usuario ${correoLimpio} agregado exitosamente como ${nuevoRol}.`);
     } catch (error: any) {
-      alert("Error al agregar usuario: " + error.message);
+      mostrarToast("error", "Error: " + error.message);
     } finally {
       setProcesando(false);
     }
   };
 
-  const eliminarUsuario = async (correo: string) => {
-    if (!window.confirm(`¿Estás seguro de revocar el acceso a ${correo}?`)) return;
+  const confirmarYeliminar = async () => {
+    if (!confirmModal) return;
+    const correo = confirmModal.correo;
+    setConfirmModal(null);
 
     try {
       const { error } = await supabase
@@ -86,14 +94,54 @@ export default function UserManagement() {
         .eq("correo", correo);
 
       if (error) throw error;
+      
+      mostrarToast("exito", "Acceso revocado exitosamente.");
       cargarUsuarios();
     } catch (error: any) {
-      alert("Error al eliminar: " + error.message);
+      mostrarToast("error", "Error al revocar acceso: " + error.message);
     }
   };
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-6 relative">
+      
+      {/* Toast Premium */}
+      {toast && (
+        <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-70 px-6 py-3 rounded-full shadow-2xl flex items-center space-x-2 font-bold text-sm animate-in fade-in slide-in-from-top-5 ${toast.tipo === "exito" ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
+          {toast.tipo === "exito" ? <CheckCircle className="w-5 h-5 shrink-0" /> : <XCircle className="w-5 h-5 shrink-0" />}
+          <span>{toast.mensaje}</span>
+        </div>
+      )}
+
+      {/* Modal Confirmación Premium */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8">
+              <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mb-6 mx-auto">
+                <AlertCircle className="w-8 h-8 text-red-600" />
+              </div>
+              <h3 className="text-xl font-extrabold text-center text-gray-900 mb-2">{confirmModal.titulo}</h3>
+              <p className="text-center text-gray-600 text-sm mb-8 font-medium leading-relaxed">{confirmModal.mensaje}</p>
+              <div className="flex space-x-3">
+                <button 
+                  onClick={() => setConfirmModal(null)} 
+                  className="flex-1 bg-white border-2 border-gray-200 text-gray-700 font-bold py-3.5 rounded-xl hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={confirmarYeliminar} 
+                  className="flex-1 bg-red-600 text-white font-bold py-3.5 rounded-xl hover:bg-red-700 transition-colors shadow-lg shadow-red-600/30"
+                >
+                  Revocar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Formulario de Alta */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
         <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
@@ -106,7 +154,7 @@ export default function UserManagement() {
             value={nuevoCorreo}
             onChange={(e) => setNuevoCorreo(e.target.value)}
             placeholder="Correo del equipo..."
-            className="flex-1 border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-[#311b42] text-gray-900 placeholder-gray-500"
+            className="flex-1 border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-[#311b42] text-gray-900 placeholder-gray-500 bg-gray-50"
             required
           />
           <input
@@ -115,13 +163,13 @@ export default function UserManagement() {
             onChange={(e) => setNuevoPassword(e.target.value)}
             placeholder="Asignar contraseña..."
             minLength={6}
-            className="flex-1 border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-[#311b42] text-gray-900 placeholder-gray-500"
+            className="flex-1 border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-[#311b42] text-gray-900 placeholder-gray-500 bg-gray-50"
             required
           />
           <select
             value={nuevoRol}
             onChange={(e) => setNuevoRol(e.target.value as "Admin" | "Master")}
-            className="border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-[#311b42] bg-white font-medium text-gray-900"
+            className="border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-[#311b42] bg-gray-50 font-medium text-gray-900"
           >
             <option value="Admin">Administrador</option>
             <option value="Master">Master</option>
@@ -129,7 +177,7 @@ export default function UserManagement() {
           <button
             type="submit"
             disabled={procesando}
-            className="bg-[#311b42] hover:bg-purple-950 text-white font-bold px-6 py-3 rounded-xl disabled:opacity-70 transition-colors"
+            className="bg-[#311b42] hover:bg-purple-950 text-white font-bold px-6 py-3 rounded-xl disabled:opacity-70 transition-colors shadow-md"
           >
             {procesando ? "Guardando..." : "Crear Staff"}
           </button>
@@ -159,7 +207,11 @@ export default function UserManagement() {
                   </div>
                 </div>
                 <button
-                  onClick={() => eliminarUsuario(user.correo)}
+                  onClick={() => setConfirmModal({
+                    correo: user.correo,
+                    titulo: "Revocar Acceso",
+                    mensaje: `¿Estás seguro de que deseas revocar los permisos de acceso al usuario ${user.correo}?`
+                  })}
                   className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                   title="Revocar acceso"
                 >
@@ -168,7 +220,7 @@ export default function UserManagement() {
               </li>
             ))}
             {usuarios.length === 0 && (
-              <li className="p-8 text-center text-gray-500">No hay usuarios autorizados configurados.</li>
+              <li className="p-8 text-center text-gray-500 font-medium">No hay usuarios autorizados configurados.</li>
             )}
           </ul>
         )}

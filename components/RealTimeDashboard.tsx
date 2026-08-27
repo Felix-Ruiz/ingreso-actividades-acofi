@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Activity, Clock, AlertCircle, Trash2, Edit2, Save, X } from "lucide-react";
+import { Activity, Clock, AlertCircle, Trash2, Edit2, Save, X, CheckCircle, XCircle } from "lucide-react";
 
 export default function RealTimeDashboard() {
   const [evaluaciones, setEvaluaciones] = useState<any[]>([]);
@@ -14,11 +14,19 @@ export default function RealTimeDashboard() {
   const [editNota, setEditNota] = useState<string>("");
   const [procesando, setProcesando] = useState<string | null>(null);
 
+  // Estados para UI Premium (Toast y Modal)
+  const [toast, setToast] = useState<{ tipo: "exito" | "error"; mensaje: string } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ id: string; titulo: string; mensaje: string } | null>(null);
+
+  const mostrarToast = (tipo: "exito" | "error", mensaje: string) => {
+    setToast({ tipo, mensaje });
+    setTimeout(() => setToast(null), 4000);
+  };
+
   const cargarDatosIniciales = async () => {
     try {
       setError(null);
       
-      // Consultamos TODO sin forzar ordenamiento en Supabase para evitar errores de columnas faltantes
       const { data: rawEvData, error: evError } = await supabase
         .from("evaluaciones")
         .select("*")
@@ -31,12 +39,11 @@ export default function RealTimeDashboard() {
         return;
       }
 
-      // Ordenamos en memoria usando JavaScript, a prueba de fallos
       const evDataSorted = rawEvData.sort((a, b) => {
         const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
         const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
         return dateB - dateA;
-      }).slice(0, 50); // Tomamos solo los 50 más recientes para el renderizado visual
+      }).slice(0, 50);
 
       const correos = evDataSorted.map(e => e.correo_usuario);
       
@@ -61,8 +68,6 @@ export default function RealTimeDashboard() {
       }));
 
       setEvaluaciones(dataUnida);
-      
-      // Estadísticas Globales
       setEstadisticas({ total: rawEvData.length });
       
     } catch (err: any) {
@@ -90,7 +95,6 @@ export default function RealTimeDashboard() {
     };
   }, []);
 
-  // Funciones de Edición y Eliminación
   const iniciarEdicion = (ev: any) => {
     setEditingId(ev.id);
     setEditNota(String(ev.calificacion));
@@ -107,18 +111,21 @@ export default function RealTimeDashboard() {
       if (error) throw error;
       
       setEditingId(null);
+      mostrarToast("exito", "Calificación actualizada correctamente.");
       cargarDatosIniciales();
     } catch (err: any) {
-      alert("Error al editar la calificación: " + err.message);
+      mostrarToast("error", "Error al editar: " + err.message);
     } finally {
       setProcesando(null);
     }
   };
 
-  const eliminarEvaluacion = async (id: string) => {
-    if (!window.confirm("¿Estás seguro de que deseas eliminar esta calificación? Esta acción no se puede deshacer.")) return;
-    
+  const confirmarYeliminar = async () => {
+    if (!confirmModal) return;
+    const id = confirmModal.id;
     setProcesando(id);
+    setConfirmModal(null);
+
     try {
       const { error } = await supabase
         .from("evaluaciones")
@@ -127,17 +134,55 @@ export default function RealTimeDashboard() {
         
       if (error) throw error;
       
+      mostrarToast("exito", "Calificación eliminada correctamente.");
       cargarDatosIniciales();
     } catch (err: any) {
-      alert("Error al eliminar la calificación: " + err.message);
+      mostrarToast("error", "Error al eliminar: " + err.message);
     } finally {
       setProcesando(null);
     }
   };
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-6 relative">
       
+      {/* Notificación Toast Premium */}
+      {toast && (
+        <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-70 px-6 py-3 rounded-full shadow-2xl flex items-center space-x-2 font-bold text-sm animate-in fade-in slide-in-from-top-5 ${toast.tipo === "exito" ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
+          {toast.tipo === "exito" ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+          <span>{toast.mensaje}</span>
+        </div>
+      )}
+
+      {/* Modal de Confirmación Nativo */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8">
+              <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mb-6 mx-auto">
+                <AlertCircle className="w-8 h-8 text-red-600" />
+              </div>
+              <h3 className="text-xl font-extrabold text-center text-gray-900 mb-2">{confirmModal.titulo}</h3>
+              <p className="text-center text-gray-600 text-sm mb-8 font-medium leading-relaxed">{confirmModal.mensaje}</p>
+              <div className="flex space-x-3">
+                <button 
+                  onClick={() => setConfirmModal(null)} 
+                  className="flex-1 bg-white border-2 border-gray-200 text-gray-700 font-bold py-3.5 rounded-xl hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={confirmarYeliminar} 
+                  className="flex-1 bg-red-600 text-white font-bold py-3.5 rounded-xl hover:bg-red-700 transition-colors shadow-lg shadow-red-600/30"
+                >
+                  Eliminar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-100 text-red-800 p-4 rounded-xl flex items-center space-x-2">
           <AlertCircle className="w-5 h-5 shrink-0" />
@@ -145,7 +190,6 @@ export default function RealTimeDashboard() {
         </div>
       )}
 
-      {/* Se eliminó la tarjeta del Promedio Global y se dejó solo la de Totales adaptada al ancho completo */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex items-center space-x-4 max-w-md">
         <div className="bg-emerald-100 p-4 rounded-full">
           <Activity className="w-8 h-8 text-emerald-600 animate-pulse" />
@@ -193,7 +237,7 @@ export default function RealTimeDashboard() {
                         max="1000" 
                         value={editNota} 
                         onChange={(e) => setEditNota(e.target.value)} 
-                        className="w-20 border border-gray-400 p-1 rounded text-gray-900 bg-white" 
+                        className="w-20 border border-gray-400 p-1.5 rounded text-gray-900 bg-white shadow-sm focus:ring-2 focus:ring-[#c81474] outline-none" 
                       />
                     ) : (
                       ev.calificacion
@@ -208,7 +252,7 @@ export default function RealTimeDashboard() {
                         <button 
                           onClick={() => guardarEdicion(ev.id)} 
                           disabled={procesando === ev.id}
-                          className="text-green-600 hover:text-green-800 transition-colors p-1 bg-green-50 rounded"
+                          className="text-green-600 hover:text-green-800 transition-colors p-1.5 bg-green-50 hover:bg-green-100 rounded-lg shadow-sm"
                           title="Guardar"
                         >
                           <Save className="w-5 h-5"/>
@@ -216,7 +260,7 @@ export default function RealTimeDashboard() {
                         <button 
                           onClick={() => setEditingId(null)} 
                           disabled={procesando === ev.id}
-                          className="text-red-500 hover:text-red-700 transition-colors p-1 bg-red-50 rounded"
+                          className="text-red-500 hover:text-red-700 transition-colors p-1.5 bg-red-50 hover:bg-red-100 rounded-lg shadow-sm"
                           title="Cancelar"
                         >
                           <X className="w-5 h-5"/>
@@ -227,15 +271,19 @@ export default function RealTimeDashboard() {
                         <button 
                           onClick={() => iniciarEdicion(ev)} 
                           disabled={procesando === ev.id}
-                          className="text-gray-500 hover:text-[#c81474] transition-colors p-1 bg-gray-100 rounded"
+                          className="text-gray-500 hover:text-[#c81474] transition-colors p-1.5 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg shadow-sm"
                           title="Editar calificación"
                         >
                           <Edit2 className="w-4 h-4"/>
                         </button>
                         <button 
-                          onClick={() => eliminarEvaluacion(ev.id)} 
+                          onClick={() => setConfirmModal({
+                            id: ev.id,
+                            titulo: "Eliminar Calificación",
+                            mensaje: `¿Eliminar permanentemente la evaluación de ${ev.participante.nombre} para la ponencia ${ev.codigo_ponencia}?`
+                          })} 
                           disabled={procesando === ev.id}
-                          className="text-gray-500 hover:text-red-600 transition-colors p-1 bg-gray-100 rounded"
+                          className="text-gray-500 hover:text-red-600 transition-colors p-1.5 bg-white border border-gray-200 hover:bg-red-50 rounded-lg shadow-sm"
                           title="Eliminar calificación"
                         >
                           <Trash2 className="w-4 h-4"/>
