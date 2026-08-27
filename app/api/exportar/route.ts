@@ -105,8 +105,9 @@ export async function GET() {
     const mods = resultados.filter(r => r.rol === "Moderador");
     const parts = resultados.filter(r => r.rol === "Participante");
 
-    crearHojaConEstadisticas("Moderador", mods);
-    crearHojaConEstadisticas("Participante", parts);
+    // Corrección de Nombres: "Moderadores" y "Participantes"
+    crearHojaConEstadisticas("Moderadores", mods);
+    crearHojaConEstadisticas("Participantes", parts);
 
     const modNames = Array.from(new Set(mods.map(m => m.nombreCompleto)));
     modNames.forEach(name => {
@@ -170,9 +171,10 @@ export async function GET() {
         const nomEval = modVote.nombreCompleto.substring(0, 31);
         rRow[1] = nomEval; 
         rRow[2] = modVote.nota; 
-        rRow[3] = { formula: `IFERROR(Moderador!$H$2, 0)` }; 
+        // Corregido: Las fórmulas apuntan a la hoja 'Moderadores'
+        rRow[3] = { formula: `IFERROR(Moderadores!$H$2, 0)` }; 
         rRow[4] = { formula: `IFERROR('${nomEval}'!$H$2, 0)` }; 
-        rRow[5] = { formula: `IFERROR(Moderador!$I$2, 0)` }; 
+        rRow[5] = { formula: `IFERROR(Moderadores!$I$2, 0)` }; 
         rRow[6] = { formula: `IFERROR('${nomEval}'!$I$2, 0)` }; 
         rRow[7] = 0.8; 
         rRow[8] = { formula: `IFERROR(MAX(0, MIN(1000, F${f}+H${f}*(D${f}/IF(E${f}=0,1,E${f}))*(C${f}-G${f}))), 0)` }; 

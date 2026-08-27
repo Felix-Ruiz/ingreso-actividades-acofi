@@ -164,7 +164,7 @@ export default function LiveConsolidado() {
     calcularConsolidado();
   }, []);
 
-  // Función para renderizar hojas estándar (Resultados, Moderador, Juan, etc.)
+  // Función para renderizar hojas estándar (Resultados, Moderadores, Participantes, etc.)
   const renderStandardSheet = (datos: Evaluacion[], isStats = false) => {
     const stdev = stdevp(datos.map(d => d.nota));
     const avg = average(datos.map(d => d.nota));
@@ -183,9 +183,9 @@ export default function LiveConsolidado() {
             </div>
           </div>
         )}
-        <div className="overflow-x-auto max-h-125 border border-gray-200 rounded-xl">
+        <div className="overflow-x-auto max-h-125 border border-gray-200 rounded-xl shadow-sm">
           <table className="w-full text-sm text-left whitespace-nowrap">
-            <thead className="bg-[#c81474] text-white font-extrabold sticky top-0 z-10">
+            <thead className="bg-[#c81474] text-white font-extrabold sticky top-0 z-10 shadow-sm">
               <tr>
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Código Ponencia</th>
@@ -198,18 +198,18 @@ export default function LiveConsolidado() {
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
               {datos.map((d, i) => (
-                <tr key={i} className="hover:bg-gray-50">
-                  <td className="px-4 py-2">{d.email}</td>
-                  <td className="px-4 py-2 font-bold">{d.ponencia}</td>
+                <tr key={i} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-2 font-medium text-gray-900">{d.email}</td>
+                  <td className="px-4 py-2 font-bold text-gray-900">{d.ponencia}</td>
                   <td className="px-4 py-2 font-mono font-bold text-[#c81474]">{d.nota}</td>
-                  <td className="px-4 py-2 text-gray-500">{d.fecha}</td>
-                  <td className="px-4 py-2">{d.nombre}</td>
-                  <td className="px-4 py-2">{d.apellido}</td>
-                  <td className="px-4 py-2 font-bold">{d.rol}</td>
+                  <td className="px-4 py-2 font-medium text-gray-900">{d.fecha}</td>
+                  <td className="px-4 py-2 font-medium text-gray-900">{d.nombre}</td>
+                  <td className="px-4 py-2 font-medium text-gray-900">{d.apellido}</td>
+                  <td className="px-4 py-2 font-bold text-gray-900">{d.rol}</td>
                 </tr>
               ))}
               {datos.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">No hay datos para esta hoja.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500 font-bold">No hay datos para esta hoja.</td></tr>
               )}
             </tbody>
           </table>
@@ -242,25 +242,25 @@ export default function LiveConsolidado() {
               onClick={() => setActiveTab("Consolidado")}
               className={`px-4 py-2 font-bold text-sm rounded-t-lg transition-colors flex items-center space-x-1 ${activeTab === "Consolidado" ? "bg-white text-[#311b42] border-t-2 border-[#311b42] shadow-sm" : "text-gray-600 hover:bg-gray-200"}`}
             >
-              <Layers className="w-4 h-4" /> <span>Consolidado Maestro</span>
+              <Layers className="w-4 h-4" /> <span>Consolidado</span>
             </button>
             <button 
               onClick={() => setActiveTab("Resultados")}
               className={`px-4 py-2 font-bold text-sm rounded-t-lg transition-colors ${activeTab === "Resultados" ? "bg-white text-[#c81474] border-t-2 border-[#c81474] shadow-sm" : "text-gray-600 hover:bg-gray-200"}`}
             >
-              Resultados (Crudos)
+              Resultados
             </button>
             <button 
-              onClick={() => setActiveTab("Moderador")}
-              className={`px-4 py-2 font-bold text-sm rounded-t-lg transition-colors ${activeTab === "Moderador" ? "bg-white text-[#c81474] border-t-2 border-[#c81474] shadow-sm" : "text-gray-600 hover:bg-gray-200"}`}
+              onClick={() => setActiveTab("Moderadores")}
+              className={`px-4 py-2 font-bold text-sm rounded-t-lg transition-colors ${activeTab === "Moderadores" ? "bg-white text-[#c81474] border-t-2 border-[#c81474] shadow-sm" : "text-gray-600 hover:bg-gray-200"}`}
             >
-              Global Moderadores
+              Moderadores
             </button>
             <button 
-              onClick={() => setActiveTab("Participante")}
-              className={`px-4 py-2 font-bold text-sm rounded-t-lg transition-colors ${activeTab === "Participante" ? "bg-white text-[#c81474] border-t-2 border-[#c81474] shadow-sm" : "text-gray-600 hover:bg-gray-200"}`}
+              onClick={() => setActiveTab("Participantes")}
+              className={`px-4 py-2 font-bold text-sm rounded-t-lg transition-colors ${activeTab === "Participantes" ? "bg-white text-[#c81474] border-t-2 border-[#c81474] shadow-sm" : "text-gray-600 hover:bg-gray-200"}`}
             >
-              Global Participantes
+              Participantes
             </button>
             
             {/* Pestañas dinámicas por moderador */}
@@ -277,8 +277,8 @@ export default function LiveConsolidado() {
 
           <div className="p-4 bg-gray-50">
             {activeTab === "Resultados" && renderStandardSheet(sheets.resultados, false)}
-            {activeTab === "Moderador" && renderStandardSheet(sheets.mods, true)}
-            {activeTab === "Participante" && renderStandardSheet(sheets.parts, true)}
+            {activeTab === "Moderadores" && renderStandardSheet(sheets.mods, true)}
+            {activeTab === "Participantes" && renderStandardSheet(sheets.parts, true)}
             {sheets.modNames.includes(activeTab) && renderStandardSheet(sheets.mods.filter(m => m.nombreCompleto === activeTab), true)}
 
             {/* TABLA PRINCIPAL CONSOLIDADO */}
@@ -306,9 +306,9 @@ export default function LiveConsolidado() {
                       <th className="px-3 py-3 border-r border-gray-200 bg-[#311b42] text-white">Norm Asistentes</th>
                       <th className="px-3 py-3 border-r border-gray-200 bg-[#1ba829] text-white font-extrabold text-sm">Nota Final</th>
                       
-                      {/* Columnas dinámicas de Participantes */}
+                      {/* Columnas dinámicas de Participantes (Ocultas en la visualización web para no extender la tabla) */}
                       {sheets.uniqueParticipants.map(name => (
-                        <th key={name} className="px-3 py-3 border-r border-gray-200 bg-gray-500 text-white font-normal">{name}</th>
+                        <th key={name} className="hidden px-3 py-3 border-r border-gray-200 bg-gray-500 text-white font-normal">{name}</th>
                       ))}
                     </tr>
                   </thead>
@@ -317,27 +317,27 @@ export default function LiveConsolidado() {
                       <tr key={idx} className="hover:bg-gray-50 transition-colors">
                         <td className="px-3 py-2 font-bold text-gray-900 border-r border-gray-100">{r.ponId}</td>
                         <td className="px-3 py-2 font-bold border-r border-gray-100 text-[#c81474]">{r.modName}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100">{r.hasMod ? r.C.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100 text-gray-500">{r.hasMod ? r.D.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100 text-gray-500">{r.hasMod ? r.E.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100 text-gray-500">{r.hasMod ? r.F.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100 text-gray-500">{r.hasMod ? r.G.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100 text-gray-500">{r.hasMod ? r.H.toFixed(1) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100 font-bold bg-pink-50">{r.hasMod ? r.I.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100 font-bold">{r.J > 0 ? r.J : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100">{r.J > 0 ? r.K.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100">{r.J > 0 ? r.L.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100 font-bold bg-purple-50">{r.J > 0 ? r.M.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100">{r.J > 0 ? r.N.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100 text-gray-500">{r.J > 0 ? r.O.toFixed(1) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100 text-gray-500">{r.J > 0 ? r.P.toFixed(1) : "-"}</td>
-                        <td className="px-3 py-2 font-mono border-r border-gray-100 font-bold bg-purple-50">{r.J > 0 ? r.Q.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-extrabold text-green-700 bg-green-100 border-r border-gray-200 text-sm">{r.R > 0 ? r.R.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.C.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.D.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.E.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.F.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.G.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.H.toFixed(1) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-pink-50 border-r border-gray-100">{r.hasMod ? r.I.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-bold text-gray-900 border-r border-gray-100">{r.J > 0 ? r.J : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.J > 0 ? r.K.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.J > 0 ? r.L.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-purple-50 border-r border-gray-100">{r.J > 0 ? r.M.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.J > 0 ? r.N.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.J > 0 ? r.O.toFixed(1) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.J > 0 ? r.P.toFixed(1) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-purple-50 border-r border-gray-100">{r.J > 0 ? r.Q.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-extrabold text-green-800 bg-green-100 border-r border-gray-200 text-sm">{r.R > 0 ? r.R.toFixed(2) : "-"}</td>
                         
-                        {/* Notas individuales de participantes en esta ponencia */}
+                        {/* Notas individuales de participantes en esta ponencia (Ocultas visualmente) */}
                         {sheets.uniqueParticipants.map(name => {
                           const pVote = r.pVotes.find((v: any) => v.nombreCompleto === name);
-                          return <td key={name} className="px-3 py-2 font-mono border-r border-gray-100 text-gray-500">{pVote ? pVote.nota.toFixed(2) : "-"}</td>;
+                          return <td key={name} className="hidden px-3 py-2 font-mono border-r border-gray-100 text-gray-900">{pVote ? pVote.nota.toFixed(2) : "-"}</td>;
                         })}
                       </tr>
                     ))}
