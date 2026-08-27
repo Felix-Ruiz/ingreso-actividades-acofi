@@ -2,12 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Activity, BarChart3, Clock, AlertCircle } from "lucide-react";
+import { Activity, Clock, AlertCircle, Trash2, Edit2, Save, X } from "lucide-react";
 
 export default function RealTimeDashboard() {
   const [evaluaciones, setEvaluaciones] = useState<any[]>([]);
-  const [estadisticas, setEstadisticas] = useState({ total: 0, promedioGral: 0 });
+  const [estadisticas, setEstadisticas] = useState({ total: 0 });
   const [error, setError] = useState<string | null>(null);
+  
+  // Estados para Edición y Eliminación
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editNota, setEditNota] = useState<string>("");
+  const [procesando, setProcesando] = useState<string | null>(null);
 
   const cargarDatosIniciales = async () => {
     try {
@@ -22,7 +27,7 @@ export default function RealTimeDashboard() {
       if (evError) throw evError;
       if (!rawEvData || rawEvData.length === 0) {
         setEvaluaciones([]);
-        setEstadisticas({ total: 0, promedioGral: 0 });
+        setEstadisticas({ total: 0 });
         return;
       }
 
@@ -58,19 +63,12 @@ export default function RealTimeDashboard() {
       setEvaluaciones(dataUnida);
       
       // Estadísticas Globales
-      calcularEstadisticas(rawEvData);
+      setEstadisticas({ total: rawEvData.length });
       
     } catch (err: any) {
       console.error("Error en dashboard:", err);
       setError("Error cargando los datos en vivo. " + err.message);
     }
-  };
-
-  const calcularEstadisticas = (datos: any[]) => {
-    if (datos.length === 0) return;
-    const total = datos.length;
-    const suma = datos.reduce((acc, curr) => acc + (Number(curr.calificacion) || 0), 0);
-    setEstadisticas({ total, promedioGral: Math.round(suma / total) });
   };
 
   useEffect(() => {
@@ -92,6 +90,51 @@ export default function RealTimeDashboard() {
     };
   }, []);
 
+  // Funciones de Edición y Eliminación
+  const iniciarEdicion = (ev: any) => {
+    setEditingId(ev.id);
+    setEditNota(String(ev.calificacion));
+  };
+
+  const guardarEdicion = async (id: string) => {
+    setProcesando(id);
+    try {
+      const { error } = await supabase
+        .from("evaluaciones")
+        .update({ calificacion: Number(editNota) })
+        .eq("id", id);
+        
+      if (error) throw error;
+      
+      setEditingId(null);
+      cargarDatosIniciales();
+    } catch (err: any) {
+      alert("Error al editar la calificación: " + err.message);
+    } finally {
+      setProcesando(null);
+    }
+  };
+
+  const eliminarEvaluacion = async (id: string) => {
+    if (!window.confirm("¿Estás seguro de que deseas eliminar esta calificación? Esta acción no se puede deshacer.")) return;
+    
+    setProcesando(id);
+    try {
+      const { error } = await supabase
+        .from("evaluaciones")
+        .delete()
+        .eq("id", id);
+        
+      if (error) throw error;
+      
+      cargarDatosIniciales();
+    } catch (err: any) {
+      alert("Error al eliminar la calificación: " + err.message);
+    } finally {
+      setProcesando(null);
+    }
+  };
+
   return (
     <div className="w-full space-y-6">
       
@@ -102,31 +145,21 @@ export default function RealTimeDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex items-center space-x-4">
-          <div className="bg-emerald-100 p-4 rounded-full">
-            <Activity className="w-8 h-8 text-emerald-600 animate-pulse" />
-          </div>
-          <div>
-            <p className="text-gray-500 text-sm font-bold uppercase tracking-wide">Evaluaciones Totales</p>
-            <h3 className="text-3xl font-extrabold text-gray-900">{estadisticas.total}</h3>
-          </div>
+      {/* Se eliminó la tarjeta del Promedio Global y se dejó solo la de Totales adaptada al ancho completo */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex items-center space-x-4 max-w-md">
+        <div className="bg-emerald-100 p-4 rounded-full">
+          <Activity className="w-8 h-8 text-emerald-600 animate-pulse" />
         </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex items-center space-x-4">
-          <div className="bg-blue-100 p-4 rounded-full">
-            <BarChart3 className="w-8 h-8 text-blue-600" />
-          </div>
-          <div>
-            <p className="text-gray-500 text-sm font-bold uppercase tracking-wide">Promedio Global (Bruto)</p>
-            <h3 className="text-3xl font-extrabold text-gray-900">{estadisticas.promedioGral}</h3>
-          </div>
+        <div>
+          <p className="text-gray-500 text-sm font-bold uppercase tracking-wide">Evaluaciones Totales</p>
+          <h3 className="text-3xl font-extrabold text-gray-900">{estadisticas.total}</h3>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-4 bg-gray-50 border-b border-gray-200 flex items-center space-x-2">
           <Clock className="w-5 h-5 text-gray-500" />
-          <h3 className="font-bold text-gray-900">Últimas Evaluaciones (En Vivo)</h3>
+          <h3 className="font-bold text-gray-900">Últimas 50 Evaluaciones (En Vivo)</h3>
         </div>
         <div className="overflow-x-auto max-h-100 overflow-y-auto">
           <table className="w-full text-sm text-left">
@@ -137,6 +170,7 @@ export default function RealTimeDashboard() {
                 <th className="px-4 py-3">Rol</th>
                 <th className="px-4 py-3">Calificación</th>
                 <th className="px-4 py-3">Fecha/Hora</th>
+                <th className="px-4 py-3 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -151,15 +185,69 @@ export default function RealTimeDashboard() {
                       {ev.participante.rol}
                     </span>
                   </td>
-                  <td className="px-4 py-3 font-mono font-bold text-gray-900">{ev.calificacion}</td>
+                  <td className="px-4 py-3 font-mono font-bold text-gray-900">
+                    {editingId === ev.id ? (
+                      <input 
+                        type="number" 
+                        min="0" 
+                        max="1000" 
+                        value={editNota} 
+                        onChange={(e) => setEditNota(e.target.value)} 
+                        className="w-20 border border-gray-400 p-1 rounded text-gray-900 bg-white" 
+                      />
+                    ) : (
+                      ev.calificacion
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-gray-600">
                     {ev.created_at ? new Date(ev.created_at).toLocaleString() : 'Reciente'}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {editingId === ev.id ? (
+                      <div className="flex justify-end space-x-2">
+                        <button 
+                          onClick={() => guardarEdicion(ev.id)} 
+                          disabled={procesando === ev.id}
+                          className="text-green-600 hover:text-green-800 transition-colors p-1 bg-green-50 rounded"
+                          title="Guardar"
+                        >
+                          <Save className="w-5 h-5"/>
+                        </button>
+                        <button 
+                          onClick={() => setEditingId(null)} 
+                          disabled={procesando === ev.id}
+                          className="text-red-500 hover:text-red-700 transition-colors p-1 bg-red-50 rounded"
+                          title="Cancelar"
+                        >
+                          <X className="w-5 h-5"/>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex justify-end space-x-2">
+                        <button 
+                          onClick={() => iniciarEdicion(ev)} 
+                          disabled={procesando === ev.id}
+                          className="text-gray-500 hover:text-[#c81474] transition-colors p-1 bg-gray-100 rounded"
+                          title="Editar calificación"
+                        >
+                          <Edit2 className="w-4 h-4"/>
+                        </button>
+                        <button 
+                          onClick={() => eliminarEvaluacion(ev.id)} 
+                          disabled={procesando === ev.id}
+                          className="text-gray-500 hover:text-red-600 transition-colors p-1 bg-gray-100 rounded"
+                          title="Eliminar calificación"
+                        >
+                          <Trash2 className="w-4 h-4"/>
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
               {evaluaciones.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500 font-medium">
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500 font-medium">
                     Aún no hay evaluaciones registradas en el sistema.
                   </td>
                 </tr>
