@@ -30,16 +30,16 @@ export async function GET() {
 
     const usuariosMap: Record<string, any> = {};
     partData?.forEach(p => {
-      usuariosMap[(p.correo || "").toLowerCase()] = {
+      usuariosMap[(p.correo || "").trim().toLowerCase()] = {
         nombre: (p.nombre || "").trim(),
         apellido: (p.apellido || "").trim(),
-        rol: (p.rol || "").trim(),
+        rol: (p.rol || "Participante").trim(),
         numero_documento: (p.numero_documento || "").trim()
       };
     });
 
     const resultados = (evalData || []).map(ev => {
-      const u = (ev.correo_usuario || "").toLowerCase();
+      const u = (ev.correo_usuario || "").trim().toLowerCase();
       const pData = usuariosMap[u] || { nombre: "Sin", apellido: "Registro", rol: "Participante", numero_documento: "N/A" };
       
       let rolBD = pData.rol.toLowerCase();
@@ -51,7 +51,7 @@ export async function GET() {
 
       return {
         email: u,
-        ponencia: ev.codigo_ponencia,
+        ponencia: (ev.codigo_ponencia || "").trim(),
         nota: Number(ev.calificacion),
         fecha: ev.created_at ? new Date(ev.created_at) : new Date(),
         nombre: pData.nombre,
@@ -90,7 +90,6 @@ export async function GET() {
       const lastR = datos.length + 1;
       sh.getCell('H1').value = "Desviación Estándar";
       sh.getCell('H1').font = { bold: true };
-      // SE CORRIGIÓ EL ERROR #####: Solo calcula STDEV si hay más de 1 dato.
       sh.getCell('H2').value = { formula: `IF(COUNT(C2:C${lastR})>1, STDEV.P(C2:C${lastR}), 0)` };
 
       sh.getCell('I1').value = "Promedio";
@@ -116,8 +115,6 @@ export async function GET() {
     });
 
     const shC = workbook.addWorksheet('Consolidado');
-    
-    // Extraemos ponencias de la base de datos maestra para que salgan todas, tengan o no votos
     const ponenciasDB = ponenciasData || [];
     const uniqueParticipants = Array.from(new Set(parts.map(p => p.nombreCompleto)));
 
@@ -163,17 +160,16 @@ export async function GET() {
     };
 
     ponenciasDB.forEach((ponDB, idx) => {
-      const pon = ponDB.codigo_ponencia;
+      const ponId = (ponDB.codigo_ponencia || "").trim();
       const f = idx + 2;
-      const rRow = new Array(headersC.length).fill(null); // Usamos null para que no inserte strings vacíos
-      rRow[0] = pon; 
+      const rRow = new Array(headersC.length).fill(null);
+      rRow[0] = ponId; 
 
-      const modVote = mods.find(m => m.ponencia === pon);
+      const modVote = mods.find(m => m.ponencia.toLowerCase() === ponId.toLowerCase());
       if (modVote) {
         const nomEval = modVote.nombreCompleto.substring(0, 31);
         rRow[1] = nomEval; 
         rRow[2] = modVote.nota; 
-        // Uso de IFERROR para evitar roturas de Excel
         rRow[3] = { formula: `IFERROR(Moderador!$H$2, 0)` }; 
         rRow[4] = { formula: `IFERROR('${nomEval}'!$H$2, 0)` }; 
         rRow[5] = { formula: `IFERROR(Moderador!$I$2, 0)` }; 
@@ -185,7 +181,7 @@ export async function GET() {
         rRow[2] = 0; rRow[3] = 0; rRow[4] = 0; rRow[5] = 0; rRow[6] = 0; rRow[7] = 0.8; rRow[8] = 0;
       }
 
-      const pVotes = parts.filter(p => p.ponencia === pon);
+      const pVotes = parts.filter(p => p.ponencia.toLowerCase() === ponId.toLowerCase());
       pVotes.forEach(pv => {
         const cIdx = 18 + uniqueParticipants.indexOf(pv.nombreCompleto);
         rRow[cIdx] = pv.nota;
@@ -197,7 +193,6 @@ export async function GET() {
       const maxRows = ponenciasDB.length + 1;
       
       if (uniqueParticipants.length > 0) {
-        // SE CORRIGIÓ: Se usa COUNT (cuenta solo números) para no contar celdas en blanco o fórmulas.
         row.getCell(10).value = { formula: `COUNT(S${f}:${lastColLetter}${f})` }; 
         row.getCell(13).value = { formula: `IF(J${f}>0, AVERAGE(S${f}:${lastColLetter}${f}), "")` }; 
       } else {
@@ -210,26 +205,25 @@ export async function GET() {
       row.getCell(14).value = { formula: `IFERROR(AVERAGE($M$2:$M$${maxRows}), 0)` }; 
       row.getCell(15).value = 2.0; 
       row.getCell(16).value = 30.0; 
-      row.getCell(17).value = { formula: `IFERROR(N${f}+(J${f}/(J${f}+L${f}))^O${f}*(M${f}-N${f})-P${f}*(L${f}/(J${f}+L${f})), 0)` }; 
+      row.getCell(17).value = { formula: `IFERROR(N${f}+(J${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f})))^O${f}*(M${f}-N${f})-P${f}*(L${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f}))), 0)` }; 
       row.getCell(18).value = { formula: `IFERROR((Q${f}*0.4)+(0.6*I${f}), 0)` }; 
 
-      // FORMATOS DE CELDA EXACTOS
-      row.getCell(3).numFmt = '0.00';   // Nota Mod
-      row.getCell(4).numFmt = '0.00';   // Desv Gral
-      row.getCell(5).numFmt = '0.00';   // Desv Ind
-      row.getCell(6).numFmt = '0.00';   // Prom Gral
-      row.getCell(7).numFmt = '0.00';   // Prom Ind
-      row.getCell(8).numFmt = '0.0';    // Corrección
-      row.getCell(9).numFmt = '0.00';   // Nota Norm Mod
-      row.getCell(10).numFmt = '0';     // Num Calificaciones (ENTEROS, sin decimales)
-      row.getCell(11).numFmt = '0.00';  // Prom Num Calif
-      row.getCell(12).numFmt = '0.00';  // Prom Num Calif x2
-      row.getCell(13).numFmt = '0.00';  // Prom Orig
-      row.getCell(14).numFmt = '0.00';  // Prom Global Asist
-      row.getCell(15).numFmt = '0.00';  // Factor 1
-      row.getCell(16).numFmt = '0.00';  // Factor 2
-      row.getCell(17).numFmt = '0.00';  // Norm Asistentes
-      row.getCell(18).numFmt = '0.00';  // Nota Final
+      row.getCell(3).numFmt = '0.00';
+      row.getCell(4).numFmt = '0.00';
+      row.getCell(5).numFmt = '0.00';
+      row.getCell(6).numFmt = '0.00';
+      row.getCell(7).numFmt = '0.00';
+      row.getCell(8).numFmt = '0.0';
+      row.getCell(9).numFmt = '0.00';
+      row.getCell(10).numFmt = '0';
+      row.getCell(11).numFmt = '0.00';
+      row.getCell(12).numFmt = '0.00';
+      row.getCell(13).numFmt = '0.00';
+      row.getCell(14).numFmt = '0.00';
+      row.getCell(15).numFmt = '0.00';
+      row.getCell(16).numFmt = '0.00';
+      row.getCell(17).numFmt = '0.00';
+      row.getCell(18).numFmt = '0.00';
       
       for(let i = 19; i <= 18 + uniqueParticipants.length; i++) {
          row.getCell(i).numFmt = '0.00';
