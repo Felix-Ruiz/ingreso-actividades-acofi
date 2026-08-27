@@ -1,120 +1,161 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import ExcelJS from "exceljs";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import ExcelJS from 'exceljs';
 
 export async function GET() {
   try {
-    // 1. Obtener datos de Supabase
-    const { data: evaluaciones, error: errEval } = await supabase
-      .from("evaluaciones")
-      .select(`
-        calificacion,
-        fecha_evaluacion,
-        codigo_ponencia,
-        correo_usuario,
-        base_datos_participantes (nombre, apellido, rol)
-      `);
+    // 1. Inicializar cliente de Supabase desde las variables de entorno
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error("Faltan las credenciales de Supabase en el entorno del servidor.");
+    }
 
-    if (errEval) throw errEval;
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // 2. Crear el libro de Excel
+    // 2. Extraer todos los datos necesarios (Ponencias, Evaluaciones y Participantes)
+    const { data: ponencias, error: errPonencias } = await supabase
+      .from('ponencias')
+      .select('*')
+      .order('fecha_programada', { ascending: true });
+      
+    if (errPonencias) throw errPonencias;
+
+    const { data: evaluaciones, error: errEvaluaciones } = await supabase
+      .from('evaluaciones')
+      .select('*')
+      .order('created_at', { ascending: true });
+      
+    if (errEvaluaciones) throw errEvaluaciones;
+
+    // Extraemos participantes del módulo de Ponencias para saber quién es el evaluador
+    const { data: participantes, error: errParticipantes } = await supabase
+      .from('base_datos_participantes')
+      .select('correo, nombre, apellido, rol, numero_documento')
+      .eq('modulo', 'Ponencias');
+      
+    if (errParticipantes) throw errParticipantes;
+
+    // Mapeo rápido de participantes por correo para cruce de datos eficiente
+    const mapParticipantes: Record<string, any> = {};
+    participantes?.forEach(p => {
+      mapParticipantes[p.correo] = p;
+    });
+
+    // 3. Crear el archivo Excel y sus propiedades
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Sistema ACOFI";
+    workbook.creator = 'Sistema de Gestión ACOFI';
     workbook.created = new Date();
 
-    // --- HOJA 1: RESULTADOS CRUDOS ---
-    const sheetResultados = workbook.addWorksheet("Resultados");
-    sheetResultados.columns = [
-      { header: "Email", key: "email", width: 25 },
-      { header: "Código Ponencia", key: "ponencia", width: 20 },
-      { header: "Calificación", key: "calificacion", width: 15 },
-      { header: "Fecha", key: "fecha", width: 20 },
-      { header: "Nombre", key: "nombre", width: 20 },
-      { header: "Apellido", key: "apellido", width: 20 },
-      { header: "Rol", key: "rol", width: 15 }
-    ];
-
-    // Estilo encabezado Resultados
-    sheetResultados.getRow(1).eachCell((cell) => {
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC81474" } };
-      cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+    // =========================================================================
+    // HOJA 1: CONSOLIDADO DE PONENCIAS (Con Fórmulas Matemáticas y Ponderaciones)
+    // =========================================================================
+    const sheetConsolidado = workbook.addWorksheet('Consolidado Ponencias', {
+      views: [{ state: 'frozen', ySplit: 1 }] // Congelar la primera fila
     });
 
-    // Llenar datos en Resultados
-    evaluaciones?.forEach((ev) => {
-      const p = ev.base_datos_participantes as any;
-      const rolDefinitivo = p?.rol ? String(p.rol).trim() : "Participante";
-      
-      sheetResultados.addRow({
-        email: ev.correo_usuario,
-        ponencia: ev.codigo_ponencia,
-        calificacion: ev.calificacion,
-        fecha: new Date(ev.fecha_evaluacion).toLocaleDateString(),
-        nombre: p?.nombre || "",
-        apellido: p?.apellido || "",
-        rol: rolDefinitivo
-      });
-    });
-
-    // --- HOJA 2: CONSOLIDADO MATEMÁTICO ---
-    const sheetConsolidado = workbook.addWorksheet("Consolidado");
+    // Configurar Columnas
     sheetConsolidado.columns = [
-      { header: "Número Ponencia", key: "ponencia", width: 20 },
-      { header: "Moderador", key: "mod", width: 20 },
-      { header: "Nota Mod", key: "nota_mod", width: 15 },
-      { header: "Desv. Gral Mod", key: "desv_gral", width: 20 },
-      { header: "Desv. Individual Mod", key: "desv_ind", width: 20 },
-      { header: "Promedio Gral Mod", key: "prom_gral", width: 20 },
-      { header: "Promedio Individual Mod", key: "prom_ind", width: 25 },
-      { header: "Corrección", key: "correccion", width: 15 },
-      { header: "Nota Normalizada Mod", key: "nota_norm", width: 25 }
+      { header: 'Código Ponencia', key: 'codigo', width: 20 },
+      { header: 'Título de la Ponencia', key: 'titulo', width: 50 },
+      { header: 'Fecha Programada', key: 'fecha', width: 20 },
+      { header: 'Total Votos', key: 'total', width: 15 },
+      { header: 'Suma de Calificaciones', key: 'suma', width: 25 },
+      { header: 'Promedio Matemático', key: 'promedio', width: 25 },
+      { header: 'Ponderación (100%)', key: 'ponderacion', width: 25 },
     ];
 
-    // Estilo encabezado Consolidado
-    sheetConsolidado.getRow(1).eachCell((cell) => {
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF311B42" } };
-      cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
-    });
+    // Estilo de la Cabecera (Hoja 1)
+    const headerRow1 = sheetConsolidado.getRow(1);
+    headerRow1.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+    headerRow1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF311B42' } };
+    headerRow1.alignment = { vertical: 'middle', horizontal: 'center' };
 
-    // Agrupar ponencias únicas para el Consolidado
-    const ponenciasUnicas = Array.from(new Set(evaluaciones?.map(e => e.codigo_ponencia)));
-    
-    ponenciasUnicas.forEach((cod, index) => {
-      const fila = index + 2; // Fila en excel (1 es encabezado)
-      // Buscar si hay un moderador para esta ponencia
-      const evalMod = evaluaciones?.find(e => 
-        e.codigo_ponencia === cod && 
-        ((e.base_datos_participantes as any)?.rol === "Moderador")
-      );
+    // Insertar datos de ponencias e inyectar fórmulas de Excel
+    ponencias?.forEach((p, index) => {
+      const rowNumber = index + 2; // Fila real en Excel (la 1 es cabecera)
+      
+      // Pre-calcular sumas para tener el dato en bruto
+      const evsDePonencia = evaluaciones?.filter(e => e.codigo_ponencia === p.codigo_ponencia) || [];
+      const totalVotos = evsDePonencia.length;
+      const sumaCalificaciones = evsDePonencia.reduce((acc, curr) => acc + (Number(curr.calificacion) || 0), 0);
 
       sheetConsolidado.addRow({
-        ponencia: cod,
-        mod: evalMod ? `${(evalMod.base_datos_participantes as any).nombre} ${(evalMod.base_datos_participantes as any).apellido}` : "Sin Moderador",
-        nota_mod: evalMod ? evalMod.calificacion : 0,
-        correccion: 0.8
+        codigo: p.codigo_ponencia,
+        titulo: p.nombre_ponencia,
+        fecha: p.fecha_programada,
+        total: totalVotos,
+        suma: sumaCalificaciones,
+        // Inyección de Fórmulas Matemáticas (Se calculan en tiempo real en el Excel del usuario)
+        // Promedio = Suma / Total (Con control de división por cero IF(D2>0, E2/D2, 0))
+        promedio: totalVotos > 0 ? { formula: `IF(D${rowNumber}>0, E${rowNumber}/D${rowNumber}, 0)` } : 0,
+        // Ponderación (Ejemplo: Asumiendo que el máximo es 1000, calculamos el porcentaje sobre 100%)
+        ponderacion: totalVotos > 0 ? { formula: `IF(F${rowNumber}>0, (F${rowNumber}/1000)*100, 0)` } : 0
       });
-
-      // Inyectar fórmulas (Simulación estructural del App Script)
-      sheetConsolidado.getCell(`D${fila}`).value = { formula: `STDEV.P(Resultados!C2:C100)`, date1904: false };
-      sheetConsolidado.getCell(`F${fila}`).value = { formula: `AVERAGE(Resultados!C2:C100)`, date1904: false };
-      sheetConsolidado.getCell(`I${fila}`).value = { formula: `MAX(0, MIN(1000, C${fila}+D${fila}*(0.8)*(C${fila}-F${fila})))`, date1904: false };
+      
+      // Formato numérico a las celdas de promedio y ponderación
+      sheetConsolidado.getCell(`F${rowNumber}`).numFmt = '0.00';
+      sheetConsolidado.getCell(`G${rowNumber}`).numFmt = '0.00"%"';
     });
 
-    // 3. Convertir a Buffer y enviar al cliente
+    // =========================================================================
+    // HOJA 2: DATOS CRUDOS (Historial detallado de cada evaluación y evaluador)
+    // =========================================================================
+    const sheetDetalle = workbook.addWorksheet('Auditoría Evaluaciones', {
+      views: [{ state: 'frozen', ySplit: 1 }]
+    });
+
+    sheetDetalle.columns = [
+      { header: 'Fecha de Registro', key: 'fecha_reg', width: 25 },
+      { header: 'Código Ponencia', key: 'codigo_pon', width: 20 },
+      { header: 'Calificación Asignada', key: 'calificacion', width: 25 },
+      { header: 'Nombre del Evaluador', key: 'nombre_ev', width: 40 },
+      { header: 'Correo del Evaluador', key: 'correo_ev', width: 35 },
+      { header: 'Documento Evaluador', key: 'doc_ev', width: 25 },
+      { header: 'Rol del Evaluador', key: 'rol_ev', width: 20 },
+      { header: 'ID Evaluación (Sistema)', key: 'id_ev', width: 40 },
+    ];
+
+    // Estilo de la Cabecera (Hoja 2)
+    const headerRow2 = sheetDetalle.getRow(1);
+    headerRow2.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+    headerRow2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC81474' } };
+    headerRow2.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    // Insertar cada voto cruzando los datos con la tabla de participantes
+    evaluaciones?.forEach((ev) => {
+      const part = mapParticipantes[ev.correo_usuario] || {};
+      
+      sheetDetalle.addRow({
+        fecha_reg: new Date(ev.created_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' }),
+        codigo_pon: ev.codigo_ponencia,
+        calificacion: Number(ev.calificacion),
+        nombre_ev: `${part.nombre || 'Participante'} ${part.apellido || 'No Registrado'}`.trim(),
+        correo_ev: ev.correo_usuario,
+        doc_ev: part.numero_documento || 'N/A',
+        rol_ev: part.rol || 'N/A',
+        id_ev: ev.id
+      });
+    });
+
+    // 4. Generar Buffer final
     const buffer = await workbook.xlsx.writeBuffer();
 
+    // 5. Retornar archivo al navegador con los headers correctos de descarga
     return new NextResponse(buffer, {
       status: 200,
       headers: {
-        "Content-Disposition": 'attachment; filename="Evaluaciones_ACOFI.xlsx"',
-        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="Consolidado_Final_ACOFI.xlsx"',
       },
     });
+    
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Error generando reporte Excel:', error);
+    return NextResponse.json(
+      { error: 'Error del sistema procesando el reporte: ' + error.message }, 
+      { status: 500 }
+    );
   }
 }
