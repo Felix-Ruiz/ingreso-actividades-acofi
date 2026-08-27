@@ -3,14 +3,11 @@
 import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase } from "../lib/supabase";
-import { CheckCircle, XCircle, WifiOff, RefreshCw, ZoomIn } from "lucide-react";
+import { CheckCircle, XCircle, WifiOff, RefreshCw } from "lucide-react";
 
 export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: string }) {
   const [resultado, setResultado] = useState<{ tipo: "exito" | "error" | "offline"; mensaje: string; nombre?: string } | null>(null);
   const [pendientesSync, setPendientesSync] = useState<string[]>([]);
-  
-  // Estado para la barra de Zoom Manual
-  const [zoomFeatures, setZoomFeatures] = useState<{ min: number; max: number; step: number; value: number; track: MediaStreamTrack } | null>(null);
   
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isScanningRef = useRef(false);
@@ -28,14 +25,14 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         const html5QrCode = new Html5Qrcode("qr-reader-custom");
         scannerRef.current = html5QrCode;
         
-        const config = { fps: 15, qrbox: { width: 280, height: 280 } };
+        const config = { fps: 15, qrbox: { width: 250, height: 250 } };
         
-        // 1. INICIO SEGURO: Dispara el popup de permisos nativo
+        // 1. INICIO SEGURO: Dispara el popup de permisos nativo siempre
         try {
           await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
           isScanningRef.current = true;
 
-          // 2. INYECCIÓN POST-PERMISOS: Una vez encendida la cámara, le aplicamos las mejoras de hardware
+          // 2. AUTO-ZOOM Y AUTOENFOQUE INVISIBLE (La magia ocurre aquí sin barras manuales)
           setTimeout(async () => {
             try {
               const videoEl = document.querySelector('#qr-reader-custom video') as HTMLVideoElement;
@@ -45,43 +42,32 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
               const track = stream.getVideoTracks()[0];
               if (!track) return;
 
-              // Casteo para que TypeScript permita APIs avanzadas
+              // Casteamos a "any" para usar propiedades avanzadas sin errores de TypeScript
               const capabilities = track.getCapabilities() as any;
               const advanced: any[] = [];
 
-              // Intentar autoenfoque continuo si el lente lo soporta
+              // Forzar Autoenfoque Continuo si el teléfono lo soporta
               if (capabilities.focusMode && capabilities.focusMode.includes("continuous")) {
                 advanced.push({ focusMode: "continuous" });
               }
 
-              // Habilitar Barra de Zoom si el hardware lo soporta
+              // AUTO-ZOOM MÁGICO: Aplica un zoom de 2.5x automáticamente para leer desde lejos
               if (capabilities.zoom) {
-                const minZ = capabilities.zoom.min || 1;
                 const maxZ = capabilities.zoom.max || 5;
-                const stepZ = capabilities.zoom.step || 0.1;
-                const defaultZoom = Math.min(maxZ, Math.max(minZ, 2.0)); // Inicia en 2x para acercar automáticamente
-                
-                advanced.push({ zoom: defaultZoom });
-                
-                setZoomFeatures({
-                  min: minZ,
-                  max: maxZ,
-                  step: stepZ,
-                  value: defaultZoom,
-                  track: track
-                });
+                const autoZoom = Math.min(maxZ, 2.5); // Se acerca solo
+                advanced.push({ zoom: autoZoom });
               }
 
               if (advanced.length > 0) {
                 await track.applyConstraints({ advanced } as any);
               }
             } catch (errHardware) {
-              console.log("Aviso: El dispositivo no permite control manual del lente.", errHardware);
+              console.log("Aviso: El dispositivo no permite inyectar zoom automático.", errHardware);
             }
-          }, 1500); // 1.5 segundos de espera asegurando que el video ya arrancó
-
+          }, 1000); // Espera 1 segundo a que la cámara encienda para hacer el Auto-Zoom
+          
         } catch (errEnv) {
-          // Fallback: Intentar cámara frontal si falla la trasera
+          // Si falla (PC de escritorio/Laptops), intentar cámara frontal
           try {
             await html5QrCode.start({ facingMode: "user" }, config, onScanSuccess, () => {});
             isScanningRef.current = true;
@@ -107,17 +93,6 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
       }
     };
   }, [moduloSeleccionado]);
-
-  // Controlador de la barra de Zoom en vivo
-  const handleZoomChange = async (newZoom: number) => {
-    if (!zoomFeatures) return;
-    try {
-      await zoomFeatures.track.applyConstraints({ advanced: [{ zoom: newZoom }] } as any);
-      setZoomFeatures({ ...zoomFeatures, value: newZoom });
-    } catch (e) {
-      console.error("Error al aplicar zoom manual:", e);
-    }
-  };
 
   const extraerCorreoVCARD = (vcard: string) => {
     const match = vcard.match(/EMAIL[^:]*:([^\n\r]+)/i);
@@ -276,23 +251,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
       <div className="mt-8 relative overflow-hidden rounded-xl bg-black min-h-87.5 flex items-center justify-center shadow-inner">
         <div id="qr-reader-custom" className="w-full h-full" style={{ display: resultado ? 'none' : 'block' }}></div>
         
-        {/* Barra de Zoom Flotante (Se muestra solo si el hardware del celular lo permitió) */}
-        {zoomFeatures && !resultado && (
-          <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-black/60 backdrop-blur-md px-6 py-3 rounded-full flex items-center space-x-4 z-40 w-[85%] max-w-sm shadow-xl border border-white/20">
-            <ZoomIn className="w-5 h-5 text-white shrink-0" />
-            <input 
-              type="range" 
-              min={zoomFeatures.min} 
-              max={zoomFeatures.max} 
-              step={zoomFeatures.step} 
-              value={zoomFeatures.value}
-              onChange={(e) => handleZoomChange(Number(e.target.value))}
-              className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-[#c81474]"
-            />
-          </div>
-        )}
-        
-        {/* Pantalla de Resultados */}
+        {/* Pantalla de Resultados (Éxito o Error) */}
         {resultado && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center p-6 bg-white/95 backdrop-blur-md animate-in fade-in duration-200">
             {resultado.tipo === "exito" && <CheckCircle className="w-24 h-24 text-green-500 mb-4 drop-shadow-md" />}
@@ -311,7 +270,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
       </div>
 
       <p className="text-center text-xs text-gray-500 mt-4 font-medium tracking-wide">
-        Aléjate un poco del código y usa la barra deslizante para acercarlo.
+        Aleja tu celular 20cm del código. La cámara hará un acercamiento automático para leerlo.
       </p>
     </div>
   );
