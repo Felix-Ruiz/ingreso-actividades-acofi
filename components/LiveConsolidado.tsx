@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { RefreshCw, FileSpreadsheet, Layers } from "lucide-react";
+import { RefreshCw, FileSpreadsheet, Layers, Search } from "lucide-react";
 
 interface Evaluacion {
   email: string;
@@ -18,8 +18,8 @@ interface Evaluacion {
 export default function LiveConsolidado() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<string>("Consolidado");
+  const [searchTerm, setSearchTerm] = useState("");
 
-  // Estado que guardará todas las "Hojas" como en Excel
   const [sheets, setSheets] = useState<{
     resultados: Evaluacion[];
     mods: Evaluacion[];
@@ -29,7 +29,6 @@ export default function LiveConsolidado() {
     consolidadoRows: any[];
   } | null>(null);
 
-  // Funciones Matemáticas Emuladoras de Excel
   const average = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
   const stdevp = (arr: number[]) => {
     if (arr.length < 2) return 0;
@@ -47,7 +46,6 @@ export default function LiveConsolidado() {
 
       if (!ponenciasData || !evalData || !partData) return;
 
-      // 1. Mapeo de Usuarios seguro
       const mapUsuarios: Record<string, any> = {};
       partData.forEach(p => {
         mapUsuarios[(p.correo || "").trim().toLowerCase()] = {
@@ -57,7 +55,6 @@ export default function LiveConsolidado() {
         };
       });
 
-      // 2. Construir Resultados (Raw Data)
       const resultados: Evaluacion[] = evalData.map(ev => {
         const u = (ev.correo_usuario || "").trim().toLowerCase();
         const pData = mapUsuarios[u] || { nombre: "Sin", apellido: "Registro", rol: "Participante" };
@@ -78,18 +75,15 @@ export default function LiveConsolidado() {
         };
       });
 
-      // 3. Separar por Roles
       const mods = resultados.filter(r => r.rol === "Moderador");
       const parts = resultados.filter(r => r.rol === "Participante");
       const modNames = Array.from(new Set(mods.map(m => m.nombreCompleto)));
       const uniqueParticipants = Array.from(new Set(parts.map(p => p.nombreCompleto)));
 
-      // 4. Cálculos para Consolidado Maestro
       const modScoresGral = mods.map(m => m.nota);
       const desvGralMod = stdevp(modScoresGral);
       const promGralMod = average(modScoresGral);
 
-      // Primer Pase
       const rowsTemp = ponenciasData.map(pon => {
         const ponId = (pon.codigo_ponencia || "").trim();
         const ponCompare = ponId.toLowerCase();
@@ -108,7 +102,7 @@ export default function LiveConsolidado() {
 
         let I = 0;
         if (modVote) {
-          let calc = E === 0 ? F : F + H * (D / E) * (C - G); // Si E es 0, evitamos división por 0
+          let calc = E === 0 ? F : F + H * (D / E) * (C - G); 
           I = Math.max(0, Math.min(1000, calc));
         }
 
@@ -121,14 +115,12 @@ export default function LiveConsolidado() {
         };
       });
 
-      // Cálculos Globales para Participantes
       const validJ = rowsTemp.filter(r => r.J > 0).map(r => r.J);
       const avgJ = validJ.length > 0 ? average(validJ) : 0;
       
       const validM = rowsTemp.filter(r => r.J > 0).map(r => r.M);
       const avgM_excel = validM.length > 0 ? average(validM) : 0;
 
-      // Segundo Pase
       const consolidadoRows = rowsTemp.map(r => {
         let K = avgJ;
         let L = K * 2;
@@ -137,11 +129,9 @@ export default function LiveConsolidado() {
         let P = 30.0;
 
         let Q = 0;
-        if (r.J > 0) {
-          let den = r.J + L;
-          if (den === 0) den = 1;
-          Q = N + Math.pow(r.J / den, O) * (r.M - N) - P * (L / den);
-        }
+        let den = r.J + L;
+        if (den === 0) den = 1;
+        Q = N + Math.pow(r.J / den, O) * (r.M - N) - P * (L / den);
 
         let R = (Q * 0.4) + (0.6 * r.I);
 
@@ -164,10 +154,15 @@ export default function LiveConsolidado() {
     calcularConsolidado();
   }, []);
 
-  // Función para renderizar hojas estándar (Resultados, Moderadores, Participantes, etc.)
   const renderStandardSheet = (datos: Evaluacion[], isStats = false) => {
-    const stdev = stdevp(datos.map(d => d.nota));
-    const avg = average(datos.map(d => d.nota));
+    const datosFiltrados = datos.filter(d => 
+      d.ponencia.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      d.nombreCompleto.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      d.email.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    const stdev = stdevp(datosFiltrados.map(d => d.nota));
+    const avg = average(datosFiltrados.map(d => d.nota));
 
     return (
       <div className="w-full">
@@ -197,7 +192,7 @@ export default function LiveConsolidado() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
-              {datos.map((d, i) => (
+              {datosFiltrados.map((d, i) => (
                 <tr key={i} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-2 font-medium text-gray-900">{d.email}</td>
                   <td className="px-4 py-2 font-bold text-gray-900">{d.ponencia}</td>
@@ -208,13 +203,21 @@ export default function LiveConsolidado() {
                   <td className="px-4 py-2 font-bold text-gray-900">{d.rol}</td>
                 </tr>
               ))}
-              {datos.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500 font-bold">No hay datos para esta hoja.</td></tr>
+              {datosFiltrados.length === 0 && (
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500 font-bold">No se encontraron resultados para la búsqueda.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+    );
+  };
+
+  const getConsolidadoFiltrado = () => {
+    if (!sheets) return [];
+    return sheets.consolidadoRows.filter(r => 
+      r.ponId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.modName.toLowerCase().includes(searchTerm.toLowerCase())
     );
   };
 
@@ -236,7 +239,20 @@ export default function LiveConsolidado() {
         </div>
       ) : (
         <div className="flex flex-col">
-          {/* Pestañas de Hojas (Sheet Tabs) */}
+          {/* Barra de Búsqueda Universal */}
+          <div className="p-4 bg-white border-b border-gray-200 flex justify-between items-center">
+            <div className="relative w-full max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input 
+                type="text" 
+                placeholder="Buscar por código de ponencia, nombre, moderador..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 bg-gray-50"
+              />
+            </div>
+          </div>
+
           <div className="flex overflow-x-auto bg-gray-100 border-b border-gray-300 p-2 gap-2 hide-scrollbar">
             <button 
               onClick={() => setActiveTab("Consolidado")}
@@ -263,7 +279,6 @@ export default function LiveConsolidado() {
               Participantes
             </button>
             
-            {/* Pestañas dinámicas por moderador */}
             {sheets.modNames.map(name => (
               <button 
                 key={name}
@@ -281,7 +296,6 @@ export default function LiveConsolidado() {
             {activeTab === "Participantes" && renderStandardSheet(sheets.parts, true)}
             {sheets.modNames.includes(activeTab) && renderStandardSheet(sheets.mods.filter(m => m.nombreCompleto === activeTab), true)}
 
-            {/* TABLA PRINCIPAL CONSOLIDADO */}
             {activeTab === "Consolidado" && (
               <div className="overflow-x-auto max-h-150 border border-gray-200 rounded-xl shadow-sm">
                 <table className="w-full text-xs text-left whitespace-nowrap bg-white">
@@ -306,14 +320,13 @@ export default function LiveConsolidado() {
                       <th className="px-3 py-3 border-r border-gray-200 bg-[#311b42] text-white">Norm Asistentes</th>
                       <th className="px-3 py-3 border-r border-gray-200 bg-[#1ba829] text-white font-extrabold text-sm">Nota Final</th>
                       
-                      {/* Columnas dinámicas de Participantes (Ocultas en la visualización web para no extender la tabla) */}
                       {sheets.uniqueParticipants.map(name => (
                         <th key={name} className="hidden px-3 py-3 border-r border-gray-200 bg-gray-500 text-white font-normal">{name}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {sheets.consolidadoRows.map((r, idx) => (
+                    {getConsolidadoFiltrado().map((r, idx) => (
                       <tr key={idx} className="hover:bg-gray-50 transition-colors">
                         <td className="px-3 py-2 font-bold text-gray-900 border-r border-gray-100">{r.ponId}</td>
                         <td className="px-3 py-2 font-bold border-r border-gray-100 text-[#c81474]">{r.modName}</td>
@@ -324,23 +337,26 @@ export default function LiveConsolidado() {
                         <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.G.toFixed(2) : "-"}</td>
                         <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.H.toFixed(1) : "-"}</td>
                         <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-pink-50 border-r border-gray-100">{r.hasMod ? r.I.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-bold text-gray-900 border-r border-gray-100">{r.J > 0 ? r.J : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.J > 0 ? r.K.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.J > 0 ? r.L.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-purple-50 border-r border-gray-100">{r.J > 0 ? r.M.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.J > 0 ? r.N.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.J > 0 ? r.O.toFixed(1) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.J > 0 ? r.P.toFixed(1) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-purple-50 border-r border-gray-100">{r.J > 0 ? r.Q.toFixed(2) : "-"}</td>
-                        <td className="px-3 py-2 font-mono font-extrabold text-green-800 bg-green-100 border-r border-gray-200 text-sm">{r.R > 0 ? r.R.toFixed(2) : "-"}</td>
                         
-                        {/* Notas individuales de participantes en esta ponencia (Ocultas visualmente) */}
+                        <td className="px-3 py-2 font-mono font-bold text-gray-900 border-r border-gray-100">{r.J}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.K.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.L.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-purple-50 border-r border-gray-100">{r.J > 0 ? r.M.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.N.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.O.toFixed(1) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-medium text-gray-900 border-r border-gray-100">{r.hasMod ? r.P.toFixed(1) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-bold text-gray-900 bg-purple-50 border-r border-gray-100">{r.hasMod ? r.Q.toFixed(2) : "-"}</td>
+                        <td className="px-3 py-2 font-mono font-extrabold text-green-800 bg-green-100 border-r border-gray-200 text-sm">{r.hasMod ? r.R.toFixed(2) : "-"}</td>
+                        
                         {sheets.uniqueParticipants.map(name => {
                           const pVote = r.pVotes.find((v: any) => v.nombreCompleto === name);
                           return <td key={name} className="hidden px-3 py-2 font-mono border-r border-gray-100 text-gray-900">{pVote ? pVote.nota.toFixed(2) : "-"}</td>;
                         })}
                       </tr>
                     ))}
+                    {getConsolidadoFiltrado().length === 0 && (
+                      <tr><td colSpan={18} className="px-4 py-8 text-center text-gray-500 font-bold">No se encontraron ponencias para la búsqueda.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>

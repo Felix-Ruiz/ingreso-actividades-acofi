@@ -105,7 +105,6 @@ export async function GET() {
     const mods = resultados.filter(r => r.rol === "Moderador");
     const parts = resultados.filter(r => r.rol === "Participante");
 
-    // Corrección de Nombres: "Moderadores" y "Participantes"
     crearHojaConEstadisticas("Moderadores", mods);
     crearHojaConEstadisticas("Participantes", parts);
 
@@ -171,7 +170,6 @@ export async function GET() {
         const nomEval = modVote.nombreCompleto.substring(0, 31);
         rRow[1] = nomEval; 
         rRow[2] = modVote.nota; 
-        // Corregido: Las fórmulas apuntan a la hoja 'Moderadores'
         rRow[3] = { formula: `IFERROR(Moderadores!$H$2, 0)` }; 
         rRow[4] = { formula: `IFERROR('${nomEval}'!$H$2, 0)` }; 
         rRow[5] = { formula: `IFERROR(Moderadores!$I$2, 0)` }; 
@@ -194,6 +192,7 @@ export async function GET() {
       const lastColLetter = uniqueParticipants.length > 0 ? colNumLetra(18 + uniqueParticipants.length) : 'S';
       const maxRows = ponenciasDB.length + 1;
       
+      // J y M siempre se calculan basado en los votos de participantes
       if (uniqueParticipants.length > 0) {
         row.getCell(10).value = { formula: `COUNT(S${f}:${lastColLetter}${f})` }; 
         row.getCell(13).value = { formula: `IF(J${f}>0, AVERAGE(S${f}:${lastColLetter}${f}), "")` }; 
@@ -202,13 +201,14 @@ export async function GET() {
         row.getCell(13).value = "";
       }
 
-      row.getCell(11).value = { formula: `IFERROR(AVERAGE($J$2:$J$${maxRows}), 0)` }; 
-      row.getCell(12).value = { formula: `K${f}*2` }; 
-      row.getCell(14).value = { formula: `IFERROR(AVERAGE($M$2:$M$${maxRows}), 0)` }; 
-      row.getCell(15).value = 2.0; 
-      row.getCell(16).value = 30.0; 
-      row.getCell(17).value = { formula: `IFERROR(N${f}+(J${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f})))^O${f}*(M${f}-N${f})-P${f}*(L${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f}))), 0)` }; 
-      row.getCell(18).value = { formula: `IFERROR((Q${f}*0.4)+(0.6*I${f}), 0)` }; 
+      // K, L, N, O, P, Q, R se ocultan si no hay moderador (B${f} = "Sin Moderador")
+      row.getCell(11).value = { formula: `IF(B${f}="Sin Moderador", "", IFERROR(AVERAGE($J$2:$J$${maxRows}), 0))` }; 
+      row.getCell(12).value = { formula: `IF(B${f}="Sin Moderador", "", K${f}*2)` }; 
+      row.getCell(14).value = { formula: `IF(B${f}="Sin Moderador", "", IFERROR(AVERAGE($M$2:$M$${maxRows}), 0))` }; 
+      row.getCell(15).value = { formula: `IF(B${f}="Sin Moderador", "", 2.0)` }; 
+      row.getCell(16).value = { formula: `IF(B${f}="Sin Moderador", "", 30.0)` }; 
+      row.getCell(17).value = { formula: `IF(B${f}="Sin Moderador", "", IFERROR(N${f}+(J${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f})))^O${f}*(M${f}-N${f})-P${f}*(L${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f}))), 0))` }; 
+      row.getCell(18).value = { formula: `IF(B${f}="Sin Moderador", "", IFERROR((Q${f}*0.4)+(0.6*I${f}), 0))` }; 
 
       row.getCell(3).numFmt = '0.00';
       row.getCell(4).numFmt = '0.00';
@@ -222,8 +222,8 @@ export async function GET() {
       row.getCell(12).numFmt = '0.00';
       row.getCell(13).numFmt = '0.00';
       row.getCell(14).numFmt = '0.00';
-      row.getCell(15).numFmt = '0.00';
-      row.getCell(16).numFmt = '0.00';
+      row.getCell(15).numFmt = '0.0';
+      row.getCell(16).numFmt = '0.0';
       row.getCell(17).numFmt = '0.00';
       row.getCell(18).numFmt = '0.00';
       
