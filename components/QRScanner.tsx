@@ -3,11 +3,15 @@
 import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase } from "../lib/supabase";
-import { CheckCircle, XCircle, WifiOff, RefreshCw } from "lucide-react";
+import { CheckCircle, XCircle, WifiOff, RefreshCw, ZoomIn } from "lucide-react";
 
 export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: string }) {
   const [resultado, setResultado] = useState<{ tipo: "exito" | "error" | "offline"; mensaje: string; nombre?: string } | null>(null);
   const [pendientesSync, setPendientesSync] = useState<string[]>([]);
+  
+  // Estado para el Control de Zoom Nativo
+  const [zoomFeatures, setZoomFeatures] = useState<{ min: number; max: number; step: number; value: number; track: MediaStreamTrack } | null>(null);
+  
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isScanningRef = useRef(false);
 
@@ -24,43 +28,93 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         const html5QrCode = new Html5Qrcode("qr-reader-custom");
         scannerRef.current = html5QrCode;
         
-        // Configuramos el escáner para que sea ágil (15 FPS) y la caja de lectura cómoda
-        const config = { fps: 15, qrbox: { width: 250, height: 250 } };
+        const config = { fps: 15, qrbox: { width: 280, height: 280 } };
         
-        // CASCADA DE RESOLUCIÓN:
-        // Solicitamos la cámara trasera exigiendo Alta Resolución (Full HD). 
-        // Esto permite alejar el celular para que enfoque bien, y el lector aún tendrá píxeles suficientes para leer el QR pequeño.
-        try {
-          await html5QrCode.start(
-            { 
-              facingMode: "environment",
-              width: { ideal: 1920, min: 1280 },
-              height: { ideal: 1080, min: 720 }
-            }, 
-            config, 
-            onScanSuccess, 
-            () => {}
+        // 1. Obtener cámaras con el método original que dispara el popup de permisos
+        const cameras = await Html5Qrcode.getCameras();
+        
+        if (cameras && cameras.length > 0) {
+          let selectedCameraId = cameras[0].id;
+          
+          // Filtrar buscando las cámaras traseras
+          const backCameras = cameras.filter(c => 
+            c.label.toLowerCase().includes('back') || 
+            c.label.toLowerCase().includes('trasera') || 
+            c.label.toLowerCase().includes('rear') || 
+            c.label.toLowerCase().includes('environment')
           );
-          isScanningRef.current = true;
-        } catch (errEnv) {
-          // Fallback: Si el celular o PC no soporta Full HD o no tiene cámara trasera, intentamos modo normal
-          try {
-            await html5QrCode.start(
-              { facingMode: "user" }, 
-              config, 
-              onScanSuccess, 
-              () => {}
+
+          if (backCameras.length > 0) {
+            // EVITAR LA CÁMARA ULTRA-WIDE: Esta cámara carece de autoenfoque y vuelve todo borroso de cerca
+            const mainBack = backCameras.find(c => 
+              !c.label.toLowerCase().includes('ultra') && 
+              !c.label.toLowerCase().includes('wide') &&
+              !c.label.toLowerCase().includes('0.5x') &&
+              !c.label.toLowerCase().includes('telephoto')
             );
-            isScanningRef.current = true;
-          } catch (errUser) {
-            setResultado({ 
-              tipo: "error", 
-              mensaje: "Por favor, otorga permisos de cámara en tu navegador y recarga la página." 
-            });
+            selectedCameraId = mainBack ? mainBack.id : backCameras[0].id;
           }
+
+          // Iniciar la cámara seleccionada
+          await html5QrCode.start(selectedCameraId, config, onScanSuccess, () => {});
+          isScanningRef.current = true;
+
+          // INYECCIÓN DE HARDWARE: Forzar Autoenfoque y Zoom Nativo (Usando "any" para silenciar TypeScript)
+          setTimeout(async () => {
+            try {
+              const videoEl = document.querySelector('#qr-reader-custom video') as HTMLVideoElement;
+              if (!videoEl || !videoEl.srcObject) return;
+              
+              const stream = videoEl.srcObject as MediaStream;
+              const track = stream.getVideoTracks()[0];
+              if (!track) return;
+
+              // Casteamos a "any" para que TypeScript no bloquee las APIs experimentales
+              const capabilities = track.getCapabilities() as any;
+              const advanced: any[] = [];
+
+              // Forzar Autoenfoque Continuo si el teléfono lo soporta
+              if (capabilities.focusMode && capabilities.focusMode.includes("continuous")) {
+                advanced.push({ focusMode: "continuous" });
+              }
+
+              // Aplicar Zoom Automático si el teléfono lo soporta
+              if (capabilities.zoom) {
+                const minZ = capabilities.zoom.min || 1;
+                const maxZ = capabilities.zoom.max || 5;
+                const stepZ = capabilities.zoom.step || 0.1;
+                // Aplicamos un zoom automático de 2x (o el máximo que permita) para leer desde lejos
+                const defaultZoom = Math.min(maxZ, Math.max(minZ, 2.0)); 
+                
+                advanced.push({ zoom: defaultZoom });
+                
+                setZoomFeatures({
+                  min: minZ,
+                  max: maxZ,
+                  step: stepZ,
+                  value: defaultZoom,
+                  track: track
+                });
+              }
+
+              if (advanced.length > 0) {
+                // Casteamos el objeto de configuración a "any" para evitar el error de MediaTrackConstraintSet
+                await track.applyConstraints({ advanced } as any);
+              }
+            } catch (errHardware) {
+              console.log("El dispositivo no soporta controles avanzados de cámara.", errHardware);
+            }
+          }, 1500); // Darle 1.5s a la cámara para que encienda antes de inyectar el hardware
+
+        } else {
+          setResultado({ tipo: "error", mensaje: "No se detectaron cámaras en el dispositivo." });
         }
       } catch (err) {
         console.error("Error general inicializando cámara:", err);
+        setResultado({ 
+          tipo: "error", 
+          mensaje: "Por favor, otorga permisos de cámara en tu navegador y recarga la página." 
+        });
       }
     };
 
@@ -74,6 +128,17 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
       }
     };
   }, [moduloSeleccionado]);
+
+  // Controlador manual del Zoom
+  const handleZoomChange = async (newZoom: number) => {
+    if (!zoomFeatures) return;
+    try {
+      await zoomFeatures.track.applyConstraints({ advanced: [{ zoom: newZoom }] } as any);
+      setZoomFeatures({ ...zoomFeatures, value: newZoom });
+    } catch (e) {
+      console.error("Error al aplicar zoom manual:", e);
+    }
+  };
 
   const extraerCorreoVCARD = (vcard: string) => {
     const match = vcard.match(/EMAIL[^:]*:([^\n\r]+)/i);
@@ -228,9 +293,25 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         </div>
       )}
 
-      {/* Contenedor Principal de la Cámara */}
+      {/* Contenedor Principal de la Cámara con clases de Tailwind corregidas */}
       <div className="mt-8 relative overflow-hidden rounded-xl bg-black min-h-87.5 flex items-center justify-center shadow-inner">
         <div id="qr-reader-custom" className="w-full h-full" style={{ display: resultado ? 'none' : 'block' }}></div>
+        
+        {/* Barra de Zoom Manual Flotante */}
+        {zoomFeatures && !resultado && (
+          <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-black/60 backdrop-blur-md px-6 py-3 rounded-full flex items-center space-x-4 z-40 w-[85%] max-w-sm shadow-xl border border-white/20">
+            <ZoomIn className="w-5 h-5 text-white shrink-0" />
+            <input 
+              type="range" 
+              min={zoomFeatures.min} 
+              max={zoomFeatures.max} 
+              step={zoomFeatures.step} 
+              value={zoomFeatures.value}
+              onChange={(e) => handleZoomChange(Number(e.target.value))}
+              className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-[#c81474]"
+            />
+          </div>
+        )}
         
         {/* Pantalla de Resultados (Éxito o Error) */}
         {resultado && (
@@ -244,14 +325,14 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
               {resultado.mensaje}
             </p>
             {resultado.tipo !== "error" && (
-               <p className="text-gray-500 text-sm mt-8 animate-pulse font-medium">Reactivando escáner...</p>
+               <p className="text-gray-500 text-sm mt-8 animate-pulse font-medium">Reactivando sensor óptico...</p>
             )}
           </div>
         )}
       </div>
 
-      <p className="text-center text-xs text-gray-500 mt-4 font-medium tracking-wide">
-        Aleja tu celular 15-20cm del código. El lente Full HD leerá el código nítidamente sin necesidad de zoom.
+      <p className="text-center text-xs text-gray-400 mt-4 font-bold tracking-wide">
+        Motor de Lente Principal & Autoenfoque Activo
       </p>
     </div>
   );
