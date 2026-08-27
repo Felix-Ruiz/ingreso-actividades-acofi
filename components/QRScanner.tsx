@@ -24,58 +24,24 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         const html5QrCode = new Html5Qrcode("qr-reader-custom");
         scannerRef.current = html5QrCode;
         
-        // Aumentamos los FPS para mayor reactividad y el tamaño de la caja de escaneo
-        const config = { 
-          fps: 15, 
-          qrbox: { width: 280, height: 280 },
-          aspectRatio: 1.0 
-        };
+        // Mantenemos una caja amplia y fotogramas ágiles para mejor lectura natural
+        const config = { fps: 15, qrbox: { width: 280, height: 280 } };
         
-        // CASCADA DE SEGURIDAD PARA LA CÁMARA
+        // 1. Intentar iniciar cámara trasera de forma estándar para garantizar el popup de permisos
         try {
-          // Intento 1: Lente Trasero + Resolución HD (1080p) + Autoenfoque Continuo (Ideal para Android/Modern iOS)
-          await html5QrCode.start(
-            { 
-              facingMode: "environment",
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
-              advanced: [{ focusMode: "continuous" } as any]
-            }, 
-            config, 
-            onScanSuccess, 
-            () => {}
-          );
+          await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
           isScanningRef.current = true;
-        } catch (errEnv1) {
-          // Intento 2: Solo Resolución HD (Si Safari iOS bloquea las restricciones avanzadas de autoenfoque)
+        } catch (errEnv) {
+          // 2. Si falla (PC de escritorio/Laptops), intentar cámara frontal/Webcam estándar
           try {
-            await html5QrCode.start(
-              { 
-                facingMode: "environment", 
-                width: { ideal: 1920 }, 
-                height: { ideal: 1080 } 
-              }, 
-              config, 
-              onScanSuccess, 
-              () => {}
-            );
+            await html5QrCode.start({ facingMode: "user" }, config, onScanSuccess, () => {});
             isScanningRef.current = true;
-          } catch (errEnv2) {
-            // Intento 3: Fallback estándar a cámara frontal (Webcam de PC o laptop)
-            try {
-              await html5QrCode.start(
-                { facingMode: "user" }, 
-                config, 
-                onScanSuccess, 
-                () => {}
-              );
-              isScanningRef.current = true;
-            } catch (errUser) {
-              setResultado({ 
-                tipo: "error", 
-                mensaje: "Por favor, otorga permisos de cámara en tu navegador y recarga la página." 
-              });
-            }
+          } catch (errUser) {
+            // 3. Si ambos fallan, mostrar mensaje claro de permisos
+            setResultado({ 
+              tipo: "error", 
+              mensaje: "Por favor, otorga permisos de cámara en tu navegador y recarga la página." 
+            });
           }
         }
       } catch (err) {
@@ -266,9 +232,6 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
           </div>
         )}
       </div>
-      <p className="text-center text-xs text-gray-400 mt-4 font-bold tracking-wide">
-        Modo Lente HD Inteligente Activado
-      </p>
     </div>
   );
 }
