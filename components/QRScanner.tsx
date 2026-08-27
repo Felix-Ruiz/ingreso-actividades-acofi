@@ -3,17 +3,23 @@
 import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase } from "../lib/supabase";
-import { CheckCircle, XCircle, WifiOff, RefreshCw, Camera, ScanLine } from "lucide-react";
+import { CheckCircle, XCircle, WifiOff, RefreshCw, Camera, ScanLine, ArrowRight } from "lucide-react";
 
 export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: string }) {
   const [resultado, setResultado] = useState<{ tipo: "exito" | "error" | "offline" | "cargando"; mensaje: string; nombre?: string } | null>(null);
   const [pendientesSync, setPendientesSync] = useState<string[]>([]);
   
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const offlineData = JSON.parse(localStorage.getItem("offline_checkins") || "[]");
     setPendientesSync(offlineData);
+    
+    // Limpieza de seguridad al desmontar el componente
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
   }, []);
 
   const extraerCorreoVCARD = (vcard: string) => {
@@ -93,9 +99,21 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
 
   const mostrarResultadoTemporal = (res: any) => {
     setResultado(res);
-    setTimeout(() => {
+    
+    // Limpiamos cualquier temporizador anterior para evitar cruces
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    
+    // Auto-cierre a los 3.5 segundos si el usuario no presiona nada
+    timeoutRef.current = setTimeout(() => {
       setResultado(null);
-    }, 3500); // Mostramos el mensaje 3.5 segundos para que lo lean con calma
+    }, 3500);
+  };
+
+  // Función para forzar el escaneo inmediato saltándose la espera
+  const forzarSiguienteEscaneo = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setResultado(null);
+    fileInputRef.current?.click();
   };
 
   const procesarFotoNativa = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -110,7 +128,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
       } catch (err) {
         mostrarResultadoTemporal({ 
           tipo: "error", 
-          mensaje: "No se detectó ningún QR válido en la foto. Intenta acercarte más o enfocar mejor." 
+          mensaje: "No se detectó ningún QR válido en la foto. Intenta enfocar mejor." 
         });
       }
       // Limpiar el input para permitir tomar otra foto enseguida
@@ -185,6 +203,15 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
       {/* ÁREA CENTRAL PRINCIPAL */}
       <div className="w-full max-w-md flex flex-col items-center justify-center mt-12">
         
+        <input 
+          type="file" 
+          accept="image/*" 
+          capture="environment" 
+          ref={fileInputRef} 
+          className="hidden" 
+          onChange={procesarFotoNativa}
+        />
+
         {!resultado ? (
           <div className="flex flex-col items-center w-full animate-in fade-in duration-300">
             <div className="w-24 h-24 bg-pink-50 rounded-full flex items-center justify-center mb-6">
@@ -193,17 +220,8 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
             
             <h2 className="text-2xl font-extrabold text-gray-900 mb-2 text-center">Control de Acceso</h2>
             <p className="text-gray-500 text-center mb-8 font-medium px-4">
-              Toma una foto clara del código QR de la escarapela para registrar el ingreso.
+              Toma una foto clara del código QR para registrar el ingreso al instante.
             </p>
-
-            <input 
-              type="file" 
-              accept="image/*" 
-              capture="environment" 
-              ref={fileInputRef} 
-              className="hidden" 
-              onChange={procesarFotoNativa}
-            />
             
             <button 
               onClick={() => fileInputRef.current?.click()}
@@ -227,10 +245,16 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
               {resultado.mensaje}
             </p>
             
+            {/* BOTÓN PARA SALTARSE LA ESPERA (Solo aparece cuando ya procesó) */}
             {resultado.tipo !== "cargando" && (
-               <p className="text-gray-400 text-sm mt-8 font-medium text-center">
-                 La pantalla volverá a la normalidad en unos segundos...
-               </p>
+               <button 
+                 onClick={forzarSiguienteEscaneo}
+                 className="mt-8 bg-[#311b42] hover:bg-purple-950 text-white font-bold py-4 px-6 w-full rounded-xl transition-all shadow-md flex items-center justify-center space-x-2 hover:scale-[1.02] active:scale-95"
+               >
+                 <Camera className="w-5 h-5" />
+                 <span>Siguiente Escaneo Rápido</span>
+                 <ArrowRight className="w-5 h-5 ml-1" />
+               </button>
             )}
           </div>
         )}
