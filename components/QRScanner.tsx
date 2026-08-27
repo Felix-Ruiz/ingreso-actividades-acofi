@@ -3,14 +3,12 @@
 import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase } from "../lib/supabase";
-import { CheckCircle, XCircle, WifiOff, RefreshCw, Camera, ImagePlus } from "lucide-react";
+import { CheckCircle, XCircle, WifiOff, RefreshCw, Camera, ScanLine } from "lucide-react";
 
 export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: string }) {
   const [resultado, setResultado] = useState<{ tipo: "exito" | "error" | "offline" | "cargando"; mensaje: string; nombre?: string } | null>(null);
   const [pendientesSync, setPendientesSync] = useState<string[]>([]);
   
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-  const isScanningRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -18,59 +16,12 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
     setPendientesSync(offlineData);
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
-    
-    const startCamera = async () => {
-      try {
-        const html5QrCode = new Html5Qrcode("qr-reader-custom");
-        scannerRef.current = html5QrCode;
-        
-        const config = { fps: 15, qrbox: { width: 250, height: 250 } };
-        
-        try {
-          await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
-          isScanningRef.current = true;
-        } catch (errEnv) {
-          try {
-            await html5QrCode.start({ facingMode: "user" }, config, onScanSuccess, () => {});
-            isScanningRef.current = true;
-          } catch (errUser) {
-            setResultado({ 
-              tipo: "error", 
-              mensaje: "Por favor, otorga permisos de cámara en tu navegador o usa el botón de Tomar Foto." 
-            });
-          }
-        }
-      } catch (err) {
-        console.error("Error general inicializando cámara:", err);
-      }
-    };
-
-    if (isMounted) startCamera();
-
-    return () => {
-      isMounted = false;
-      if (scannerRef.current && isScanningRef.current) {
-        scannerRef.current.stop().catch(console.error);
-        isScanningRef.current = false;
-      }
-    };
-  }, [moduloSeleccionado]);
-
   const extraerCorreoVCARD = (vcard: string) => {
     const match = vcard.match(/EMAIL[^:]*:([^\n\r]+)/i);
     return match ? match[1].trim().toLowerCase() : null;
   };
 
   const onScanSuccess = async (textoDecodificado: string) => {
-    if (resultado && resultado.tipo !== "cargando") return; 
-    
-    if (scannerRef.current && isScanningRef.current) {
-      isScanningRef.current = false;
-      await scannerRef.current.pause(true);
-    }
-    
     let correo = textoDecodificado.includes("BEGIN:VCARD") 
       ? extraerCorreoVCARD(textoDecodificado) 
       : textoDecodificado.trim().toLowerCase();
@@ -144,20 +95,16 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
     setResultado(res);
     setTimeout(() => {
       setResultado(null);
-      if (scannerRef.current) {
-        scannerRef.current.resume();
-        isScanningRef.current = true;
-      }
-    }, 2500);
+    }, 3500); // Mostramos el mensaje 3.5 segundos para que lo lean con calma
   };
 
   const procesarFotoNativa = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
-      setResultado({ tipo: "cargando", mensaje: "Analizando fotografía..." }); // Indicador visual
+      setResultado({ tipo: "cargando", mensaje: "Analizando fotografía..." });
       
       try {
-        const html5QrCode = new Html5Qrcode("qr-reader-custom");
+        const html5QrCode = new Html5Qrcode("hidden-qr-reader");
         const decodedText = await html5QrCode.scanFile(file, true);
         await onScanSuccess(decodedText);
       } catch (err) {
@@ -166,6 +113,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
           mensaje: "No se detectó ningún QR válido en la foto. Intenta acercarte más o enfocar mejor." 
         });
       }
+      // Limpiar el input para permitir tomar otra foto enseguida
       e.target.value = "";
     }
   };
@@ -209,20 +157,24 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
   };
 
   return (
-    <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-6 relative">
-      <div className="absolute top-4 left-6 z-20 bg-[#311b42] text-white px-3 py-1 rounded-full text-xs font-bold shadow-md">
-        Módulo: {moduloSeleccionado}
+    <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-6 relative min-h-125 flex flex-col items-center justify-center">
+      
+      {/* Contenedor Oculto necesario para procesar la imagen */}
+      <div id="hidden-qr-reader" style={{ display: "none" }}></div>
+
+      <div className="absolute top-4 left-6 z-20 bg-[#311b42] text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-md">
+        Módulo Actual: {moduloSeleccionado}
       </div>
 
       {pendientesSync.length > 0 && (
-        <div className="mt-8 mb-4 bg-orange-100 text-orange-800 p-4 rounded-xl flex items-center justify-between">
+        <div className="absolute top-16 left-6 right-6 z-20 bg-orange-100 text-orange-800 p-4 rounded-xl flex items-center justify-between shadow-sm">
           <div className="flex items-center space-x-2">
             <WifiOff className="w-5 h-5" />
             <span className="font-bold text-sm">Faltan {pendientesSync.length} por sincronizar.</span>
           </div>
           <button 
             onClick={sincronizarDatos} 
-            className="flex items-center space-x-1 bg-orange-500 text-white px-3 py-2 rounded-lg text-sm font-bold transition"
+            className="flex items-center space-x-1 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
             <span>Sincronizar</span>
@@ -230,59 +182,59 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         </div>
       )}
 
-      {/* BOTÓN MAGICO DE CÁMARA NATIVA CON INSTRUCCIONES CLARAS */}
-      <div className="mt-10 mb-2 flex flex-col items-center">
-        <input 
-          type="file" 
-          accept="image/*" 
-          capture="environment" 
-          ref={fileInputRef} 
-          className="hidden" 
-          onChange={procesarFotoNativa}
-        />
-        <button 
-          onClick={() => fileInputRef.current?.click()}
-          className="w-full max-w-sm bg-[#c81474] hover:bg-pink-800 text-white font-bold py-4 px-4 rounded-xl transition-all shadow-md flex items-center justify-center space-x-2 hover:scale-[1.02]"
-        >
-          <Camera className="w-6 h-6" />
-          <span className="text-lg">Tomar Foto al QR</span>
-        </button>
+      {/* ÁREA CENTRAL PRINCIPAL */}
+      <div className="w-full max-w-md flex flex-col items-center justify-center mt-12">
         
-        <div className="mt-4 bg-gray-50 border border-gray-200 rounded-xl p-4 max-w-sm w-full">
-          <p className="text-sm text-gray-800 font-bold mb-2 flex items-center">
-            <ImagePlus className="w-4 h-4 mr-2 text-[#c81474]" />
-            ¿Cómo usar esta opción?
-          </p>
-          <ol className="text-xs text-gray-600 space-y-1.5 ml-6 list-decimal font-medium">
-            <li>Presiona el botón rosado de arriba.</li>
-            <li>Se abrirá la cámara de tu celular. Haz todo el zoom que necesites.</li>
-            <li><strong>Tómale una foto</strong> al código QR.</li>
-            <li>Presiona <strong>"Aceptar"</strong> (o la palomita ✔️). El sistema analizará la foto al instante.</li>
-          </ol>
-        </div>
-      </div>
-
-      {/* Contenedor Principal de la Cámara en Vivo (Para QRs grandes o normales) */}
-      <div className="mt-6 relative overflow-hidden rounded-xl bg-black min-h-87.5 flex items-center justify-center shadow-inner">
-        <div id="qr-reader-custom" className="w-full h-full" style={{ display: resultado ? 'none' : 'block' }}></div>
-        
-        {/* Pantalla de Resultados (Éxito, Error o Cargando) */}
-        {resultado && (
-          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center p-6 bg-white/95 backdrop-blur-md animate-in fade-in duration-200">
-            {resultado.tipo === "exito" && <CheckCircle className="w-24 h-24 text-green-500 mb-4 drop-shadow-md" />}
-            {resultado.tipo === "error" && <XCircle className="w-24 h-24 text-red-500 mb-4 drop-shadow-md" />}
-            {resultado.tipo === "offline" && <WifiOff className="w-24 h-24 text-orange-500 mb-4 drop-shadow-md" />}
-            {resultado.tipo === "cargando" && <RefreshCw className="w-20 h-20 text-blue-500 mb-4 animate-spin drop-shadow-md" />}
+        {!resultado ? (
+          <div className="flex flex-col items-center w-full animate-in fade-in duration-300">
+            <div className="w-24 h-24 bg-pink-50 rounded-full flex items-center justify-center mb-6">
+              <ScanLine className="w-12 h-12 text-[#c81474]" />
+            </div>
             
-            {resultado.nombre && <h3 className="text-3xl font-extrabold text-gray-900 mb-2 text-center leading-tight">{resultado.nombre}</h3>}
-            <p className={`text-center font-bold text-xl ${resultado.tipo === "error" ? "text-red-600" : resultado.tipo === "cargando" ? "text-blue-600" : "text-gray-700"}`}>
+            <h2 className="text-2xl font-extrabold text-gray-900 mb-2 text-center">Control de Acceso</h2>
+            <p className="text-gray-500 text-center mb-8 font-medium px-4">
+              Toma una foto clara del código QR de la escarapela para registrar el ingreso.
+            </p>
+
+            <input 
+              type="file" 
+              accept="image/*" 
+              capture="environment" 
+              ref={fileInputRef} 
+              className="hidden" 
+              onChange={procesarFotoNativa}
+            />
+            
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full bg-[#c81474] hover:bg-pink-800 text-white font-extrabold text-lg py-5 px-6 rounded-2xl transition-all shadow-xl shadow-pink-200 flex items-center justify-center space-x-3 hover:scale-[1.02] active:scale-95"
+            >
+              <Camera className="w-7 h-7" />
+              <span>Tomar Foto al QR</span>
+            </button>
+          </div>
+        ) : (
+          /* PANTALLA DE RESULTADOS / CARGA */
+          <div className="flex flex-col items-center w-full p-8 bg-gray-50 rounded-3xl border border-gray-100 animate-in zoom-in-95 duration-200 shadow-inner">
+            {resultado.tipo === "exito" && <CheckCircle className="w-28 h-28 text-green-500 mb-6 drop-shadow-sm" />}
+            {resultado.tipo === "error" && <XCircle className="w-28 h-28 text-red-500 mb-6 drop-shadow-sm" />}
+            {resultado.tipo === "offline" && <WifiOff className="w-28 h-28 text-orange-500 mb-6 drop-shadow-sm" />}
+            {resultado.tipo === "cargando" && <RefreshCw className="w-24 h-24 text-[#c81474] mb-6 animate-spin drop-shadow-sm" />}
+            
+            {resultado.nombre && <h3 className="text-3xl font-black text-gray-900 mb-3 text-center leading-tight">{resultado.nombre}</h3>}
+            
+            <p className={`text-center font-bold text-xl ${resultado.tipo === "error" ? "text-red-600" : resultado.tipo === "cargando" ? "text-gray-600" : "text-gray-700"}`}>
               {resultado.mensaje}
             </p>
-            {resultado.tipo !== "error" && resultado.tipo !== "cargando" && (
-               <p className="text-gray-500 text-sm mt-8 animate-pulse font-medium">Reactivando escáner en vivo...</p>
+            
+            {resultado.tipo !== "cargando" && (
+               <p className="text-gray-400 text-sm mt-8 font-medium text-center">
+                 La pantalla volverá a la normalidad en unos segundos...
+               </p>
             )}
           </div>
         )}
+
       </div>
     </div>
   );
