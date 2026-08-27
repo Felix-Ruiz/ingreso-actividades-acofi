@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase } from "../lib/supabase";
-import { CheckCircle, XCircle, WifiOff, RefreshCw } from "lucide-react";
+import { CheckCircle, XCircle, WifiOff, RefreshCw, Camera } from "lucide-react";
 
 export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: string }) {
   const [resultado, setResultado] = useState<{ tipo: "exito" | "error" | "offline"; mensaje: string; nombre?: string } | null>(null);
@@ -11,6 +11,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
   
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isScanningRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const offlineData = JSON.parse(localStorage.getItem("offline_checkins") || "[]");
@@ -27,54 +28,17 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         
         const config = { fps: 15, qrbox: { width: 250, height: 250 } };
         
-        // 1. INICIO SEGURO: Dispara el popup de permisos nativo siempre
         try {
           await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
           isScanningRef.current = true;
-
-          // 2. AUTO-ZOOM Y AUTOENFOQUE INVISIBLE (La magia ocurre aquí sin barras manuales)
-          setTimeout(async () => {
-            try {
-              const videoEl = document.querySelector('#qr-reader-custom video') as HTMLVideoElement;
-              if (!videoEl || !videoEl.srcObject) return;
-              
-              const stream = videoEl.srcObject as MediaStream;
-              const track = stream.getVideoTracks()[0];
-              if (!track) return;
-
-              // Casteamos a "any" para usar propiedades avanzadas sin errores de TypeScript
-              const capabilities = track.getCapabilities() as any;
-              const advanced: any[] = [];
-
-              // Forzar Autoenfoque Continuo si el teléfono lo soporta
-              if (capabilities.focusMode && capabilities.focusMode.includes("continuous")) {
-                advanced.push({ focusMode: "continuous" });
-              }
-
-              // AUTO-ZOOM MÁGICO: Aplica un zoom de 2.5x automáticamente para leer desde lejos
-              if (capabilities.zoom) {
-                const maxZ = capabilities.zoom.max || 5;
-                const autoZoom = Math.min(maxZ, 2.5); // Se acerca solo
-                advanced.push({ zoom: autoZoom });
-              }
-
-              if (advanced.length > 0) {
-                await track.applyConstraints({ advanced } as any);
-              }
-            } catch (errHardware) {
-              console.log("Aviso: El dispositivo no permite inyectar zoom automático.", errHardware);
-            }
-          }, 1000); // Espera 1 segundo a que la cámara encienda para hacer el Auto-Zoom
-          
         } catch (errEnv) {
-          // Si falla (PC de escritorio/Laptops), intentar cámara frontal
           try {
             await html5QrCode.start({ facingMode: "user" }, config, onScanSuccess, () => {});
             isScanningRef.current = true;
           } catch (errUser) {
             setResultado({ 
               tipo: "error", 
-              mensaje: "Por favor, otorga permisos de cámara en tu navegador y recarga la página." 
+              mensaje: "Por favor, otorga permisos de cámara en tu navegador o usa el botón de Cámara Nativa." 
             });
           }
         }
@@ -100,10 +64,10 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
   };
 
   const onScanSuccess = async (textoDecodificado: string) => {
-    if (!isScanningRef.current || resultado) return;
-    isScanningRef.current = false;
+    if (resultado) return; // Evitar dobles escaneos mientras se muestra un resultado
     
-    if (scannerRef.current) {
+    if (scannerRef.current && isScanningRef.current) {
+      isScanningRef.current = false;
       await scannerRef.current.pause(true);
     }
     
@@ -187,6 +151,25 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
     }, 2500);
   };
 
+  // --- NUEVA FUNCIÓN PARA ESCANEO DESDE FOTO NATIVAL ---
+  const procesarFotoNativa = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      try {
+        const html5QrCode = new Html5Qrcode("qr-reader-custom");
+        const decodedText = await html5QrCode.scanFile(file, true);
+        await onScanSuccess(decodedText);
+      } catch (err) {
+        mostrarResultadoTemporal({ 
+          tipo: "error", 
+          mensaje: "No se detectó ningún QR válido en la foto. Intenta acercarte más o enfocar mejor." 
+        });
+      }
+      // Limpiar el input para que permita subir la misma foto si se necesita
+      e.target.value = "";
+    }
+  };
+
   const guardarOffline = (correo: string, fecha: string, modulo: string) => {
     const offlineData = JSON.parse(localStorage.getItem("offline_checkins") || "[]");
     offlineData.push({ correo, dia_evento: fecha, modulo, timestamp: new Date().toISOString() });
@@ -247,8 +230,30 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         </div>
       )}
 
-      {/* Contenedor Principal de la Cámara */}
-      <div className="mt-8 relative overflow-hidden rounded-xl bg-black min-h-87.5 flex items-center justify-center shadow-inner">
+      {/* BOTÓN MAGICO DE CÁMARA NATIVA */}
+      <div className="mt-10 mb-2 flex flex-col items-center">
+        <input 
+          type="file" 
+          accept="image/*" 
+          capture="environment" 
+          ref={fileInputRef} 
+          className="hidden" 
+          onChange={procesarFotoNativa}
+        />
+        <button 
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full max-w-sm bg-[#c81474] hover:bg-pink-800 text-white font-bold py-3.5 px-4 rounded-xl transition-colors shadow-md flex items-center justify-center space-x-2 animate-bounce hover:animate-none"
+        >
+          <Camera className="w-5 h-5" />
+          <span>Usar Cámara Nativa (Enfoque Perfecto)</span>
+        </button>
+        <p className="text-center text-xs text-gray-500 mt-3 font-medium">
+          Si el código es muy pequeño o el navegador se ve borroso, usa este botón para abrir la cámara de tu celular con autoenfoque y zoom.
+        </p>
+      </div>
+
+      {/* Contenedor Principal de la Cámara en Vivo (Para QRs grandes o normales) */}
+      <div className="mt-4 relative overflow-hidden rounded-xl bg-black min-h-87.5 flex items-center justify-center shadow-inner">
         <div id="qr-reader-custom" className="w-full h-full" style={{ display: resultado ? 'none' : 'block' }}></div>
         
         {/* Pantalla de Resultados (Éxito o Error) */}
@@ -263,15 +268,11 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
               {resultado.mensaje}
             </p>
             {resultado.tipo !== "error" && (
-               <p className="text-gray-500 text-sm mt-8 animate-pulse font-medium">Reactivando sensor óptico...</p>
+               <p className="text-gray-500 text-sm mt-8 animate-pulse font-medium">Reactivando escáner en vivo...</p>
             )}
           </div>
         )}
       </div>
-
-      <p className="text-center text-xs text-gray-500 mt-4 font-medium tracking-wide">
-        Aleja tu celular 20cm del código. La cámara hará un acercamiento automático para leerlo.
-      </p>
     </div>
   );
 }
