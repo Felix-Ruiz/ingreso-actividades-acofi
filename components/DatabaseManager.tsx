@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Edit2, Save, X, RefreshCw, Search, Trash2, ChevronLeft, ChevronRight, User, FileText, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Edit2, Save, X, RefreshCw, Search, Trash2, ChevronLeft, ChevronRight, User, FileText, CheckCircle, XCircle, AlertCircle, Download, Calendar } from "lucide-react";
 
 type TabType = "participantes" | "ponencias" | "checkins";
 
@@ -11,6 +11,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [filtroFecha, setFiltroFecha] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Estados del Modal de Edición
@@ -101,11 +102,12 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   useEffect(() => { 
     fetchData(); 
     setSearchTerm(""); 
+    setFiltroFecha("");
   }, [activeTab, moduloSeleccionado]);
 
   useEffect(() => {
     setPaginaActual(1);
-  }, [searchTerm]);
+  }, [searchTerm, filtroFecha]);
 
   const iniciarEdicion = (item: any) => { 
     setEditForm({ ...item });
@@ -151,9 +153,17 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     }
   };
 
-  const allFilteredData = data.filter((item) => 
-    JSON.stringify(item).toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const allFilteredData = data.filter((item) => {
+    const matchText = JSON.stringify(item).toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Si estamos en check-ins y hay una fecha seleccionada
+    let matchFecha = true;
+    if (activeTab === "checkins" && filtroFecha) {
+      matchFecha = item.dia_evento === filtroFecha || (item.created_at && item.created_at.startsWith(filtroFecha));
+    }
+
+    return matchText && matchFecha;
+  });
   
   const totalPaginas = Math.ceil(allFilteredData.length / ELEMENTOS_POR_PAGINA);
   const paginatedData = allFilteredData.slice(
@@ -227,6 +237,37 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     } finally {
       setLoading(false);
     }
+  };
+
+  const exportarCheckins = () => {
+    if (allFilteredData.length === 0) {
+      mostrarToast("error", "No hay registros para descargar.");
+      return;
+    }
+
+    const headers = ["Participante", "Correo", "Fecha/Hora de Ingreso", "Estado", "Módulo"];
+    const filas = allFilteredData.map(item => [
+      item.nombre_completo || "-",
+      item.correo_usuario || "-",
+      item.created_at ? new Date(item.created_at).toLocaleString() : item.dia_evento,
+      item.estado || "-",
+      item.modulo || "-"
+    ]);
+
+    // Usamos BOM (\uFEFF) para que Excel reconozca las tildes y caracteres especiales automáticamente
+    const csvContent = [
+      headers.join(","),
+      ...filas.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `Reporte_Ingresos_${filtroFecha || "Todos"}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -305,15 +346,42 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
       </div>
 
       <div className="p-4 bg-white border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div className="relative w-full sm:max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
-          <input 
-            type="text" 
-            placeholder="Filtrar..." 
-            value={searchTerm} 
-            onChange={(e) => setSearchTerm(e.target.value)} 
-            className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 placeholder-gray-500" 
-          />
+        
+        <div className="flex flex-col sm:flex-row items-center w-full sm:w-auto gap-2">
+          {/* Buscador de Texto */}
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <input 
+              type="text" 
+              placeholder="Filtrar..." 
+              value={searchTerm} 
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 placeholder-gray-500" 
+            />
+          </div>
+
+          {/* Filtros Especiales para Check-ins */}
+          {activeTab === "checkins" && (
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
+              <div className="relative w-full sm:w-auto">
+                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
+                <input 
+                  type="date" 
+                  value={filtroFecha}
+                  onChange={(e) => setFiltroFecha(e.target.value)}
+                  className="w-full sm:w-auto pl-9 pr-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900"
+                />
+              </div>
+              <button 
+                onClick={exportarCheckins}
+                className="flex items-center justify-center space-x-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm w-full sm:w-auto"
+                title="Descargar Reporte Excel"
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">Exportar</span>
+              </button>
+            </div>
+          )}
         </div>
         
         <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
@@ -464,7 +532,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
             {allFilteredData.length === 0 && !loading && (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                  No se encontraron registros válidos.
+                  No se encontraron registros válidos para esta búsqueda o fecha.
                 </td>
               </tr>
             )}

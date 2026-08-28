@@ -25,7 +25,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
       await workbook.xlsx.load(buffer);
       const worksheet = workbook.worksheets[0];
 
-      const participantes: any[] = [];
+      const participantesTemp: any[] = [];
       const headerMap: { [key: string]: number } = {};
 
       const headerRow = worksheet.getRow(1);
@@ -43,6 +43,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         throw new Error("El archivo no contiene las columnas necesarias (CORREO ELECTRÓNICO, NOMBRE, APELLIDOS).");
       }
 
+      // Paso 1: Extraer datos del Excel a un arreglo temporal
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return;
         
@@ -51,15 +52,15 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         const apellido = row.getCell(headerMap.apellido).text?.trim();
         
         if (correo && nombre && apellido) {
-          const rol = headerMap.rol ? (row.getCell(headerMap.rol).text?.trim() || "Participante") : "Participante";
+          const rolOriginal = headerMap.rol ? (row.getCell(headerMap.rol).text?.trim() || "Participante") : "Participante";
           const telefono = headerMap.telefono ? row.getCell(headerMap.telefono).text?.trim() : null;
           const documento = headerMap.documento ? row.getCell(headerMap.documento).text?.trim() : null;
           
-          participantes.push({ 
+          participantesTemp.push({ 
             correo, 
             nombre, 
             apellido, 
-            rol, 
+            rol: rolOriginal, 
             telefono, 
             numero_documento: documento, 
             modulo: moduloSeleccionado 
@@ -67,17 +68,41 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         }
       });
 
-      if (participantes.length === 0) {
+      if (participantesTemp.length === 0) {
         throw new Error("No se encontraron registros válidos de participantes.");
       }
 
+      // Paso 2: Protección de Roles - Consultar quiénes ya son Moderadores en la BD
+      const correosExtraidos = participantesTemp.map(p => p.correo);
+      
+      const { data: moderadoresActuales, error: errConsulta } = await supabase
+        .from("base_datos_participantes")
+        .select("correo")
+        .eq("modulo", moduloSeleccionado)
+        .eq("rol", "Moderador")
+        .in("correo", correosExtraidos);
+
+      if (errConsulta) throw new Error("Error verificando roles previos en la base de datos.");
+
+      // Crear un Set con los correos que YA son moderadores para búsqueda ultrarrápida
+      const setModeradores = new Set(moderadoresActuales?.map(m => m.correo) || []);
+
+      // Paso 3: Reconstruir el arreglo final forzando el rol "Moderador" a quienes ya lo tenían
+      const participantesFinales = participantesTemp.map(p => {
+        if (setModeradores.has(p.correo)) {
+          return { ...p, rol: "Moderador" }; // Fuerza a retener su rol de moderador
+        }
+        return p; // Si no era moderador, deja el rol que traía el Excel
+      });
+
+      // Paso 4: Subir a Supabase
       const { error } = await supabase
         .from("base_datos_participantes")
-        .upsert(participantes);
+        .upsert(participantesFinales);
         
       if (error) throw error;
 
-      setMensaje({ tipo: "exito", texto: `Se cargaron ${participantes.length} participantes para el módulo: ${moduloSeleccionado}.` });
+      setMensaje({ tipo: "exito", texto: `Se cargaron ${participantesFinales.length} participantes para el módulo: ${moduloSeleccionado}. Se retuvieron los roles de moderador existentes.` });
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: `Error: ${error.message}` });
     } finally {
