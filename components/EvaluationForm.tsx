@@ -184,12 +184,13 @@ export default function EvaluationForm() {
 
         <div>
           <input
-            type="text"
+            type="number"
+            inputMode="numeric"
             value={paperCode}
             onChange={(e) => setPaperCode(e.target.value)}
             placeholder={t.paperLabel}
             disabled={loading}
-            className="w-full px-5 py-4 rounded-xl shadow-md border-0 focus:ring-2 focus:ring-[#c81474] outline-none text-gray-900 bg-white placeholder-gray-500 disabled:opacity-70 uppercase"
+            className="w-full px-5 py-4 rounded-xl shadow-md border-0 focus:ring-2 focus:ring-[#c81474] outline-none text-gray-900 bg-white placeholder-gray-500 disabled:opacity-70"
             required
           />
         </div>
