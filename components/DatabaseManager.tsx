@@ -11,7 +11,11 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filtroFecha, setFiltroFecha] = useState("");
+  
+  // Filtros de Rango de Fechas
+  const [fechaInicio, setFechaInicio] = useState("");
+  const [fechaFin, setFechaFin] = useState("");
+  
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Estados del Modal de Edición
@@ -102,12 +106,13 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   useEffect(() => { 
     fetchData(); 
     setSearchTerm(""); 
-    setFiltroFecha("");
+    setFechaInicio("");
+    setFechaFin("");
   }, [activeTab, moduloSeleccionado]);
 
   useEffect(() => {
     setPaginaActual(1);
-  }, [searchTerm, filtroFecha]);
+  }, [searchTerm, fechaInicio, fechaFin]);
 
   const iniciarEdicion = (item: any) => { 
     setEditForm({ ...item });
@@ -156,10 +161,22 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   const allFilteredData = data.filter((item) => {
     const matchText = JSON.stringify(item).toLowerCase().includes(searchTerm.toLowerCase());
     
-    // Si estamos en check-ins y hay una fecha seleccionada
+    // Lógica Inteligente de Rango de Fechas
     let matchFecha = true;
-    if (activeTab === "checkins" && filtroFecha) {
-      matchFecha = item.dia_evento === filtroFecha || (item.created_at && item.created_at.startsWith(filtroFecha));
+    if (activeTab === "checkins" && (fechaInicio || fechaFin)) {
+      const itemDateStr = item.dia_evento || (item.created_at ? item.created_at.split("T")[0] : "");
+      
+      if (itemDateStr) {
+        if (fechaInicio && fechaFin) {
+          matchFecha = itemDateStr >= fechaInicio && itemDateStr <= fechaFin;
+        } else if (fechaInicio) {
+          matchFecha = itemDateStr >= fechaInicio;
+        } else if (fechaFin) {
+          matchFecha = itemDateStr <= fechaFin;
+        }
+      } else {
+        matchFecha = false;
+      }
     }
 
     return matchText && matchFecha;
@@ -254,17 +271,21 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
       item.modulo || "-"
     ]);
 
-    // Usamos BOM (\uFEFF) para que Excel reconozca las tildes y caracteres especiales automáticamente
     const csvContent = [
       headers.join(","),
       ...filas.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
     ].join("\n");
 
+    let rangoNombre = "Todos";
+    if (fechaInicio && fechaFin) rangoNombre = `${fechaInicio}_al_${fechaFin}`;
+    else if (fechaInicio) rangoNombre = `Desde_${fechaInicio}`;
+    else if (fechaFin) rangoNombre = `Hasta_${fechaFin}`;
+
     const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", `Reporte_Ingresos_${filtroFecha || "Todos"}.csv`);
+    link.setAttribute("download", `Reporte_Ingresos_${rangoNombre}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -347,38 +368,52 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
 
       <div className="p-4 bg-white border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
         
-        <div className="flex flex-col sm:flex-row items-center w-full sm:w-auto gap-2">
+        <div className="flex flex-col xl:flex-row items-center w-full xl:w-auto gap-3">
           {/* Buscador de Texto */}
-          <div className="relative w-full sm:w-64">
+          <div className="relative w-full xl:w-64">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input 
               type="text" 
-              placeholder="Filtrar..." 
+              placeholder="Filtrar por texto..." 
               value={searchTerm} 
               onChange={(e) => setSearchTerm(e.target.value)} 
-              className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 placeholder-gray-500" 
+              className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 placeholder-gray-500" 
             />
           </div>
 
-          {/* Filtros Especiales para Check-ins */}
+          {/* Filtros de Rango de Fechas para Check-ins */}
           {activeTab === "checkins" && (
-            <div className="flex items-center space-x-2 w-full sm:w-auto">
-              <div className="relative w-full sm:w-auto">
-                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
-                <input 
-                  type="date" 
-                  value={filtroFecha}
-                  onChange={(e) => setFiltroFecha(e.target.value)}
-                  className="w-full sm:w-auto pl-9 pr-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900"
-                />
+            <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2 w-full xl:w-auto">
+              <div className="flex items-center space-x-2 w-full sm:w-auto">
+                <div className="relative w-full sm:w-auto">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input 
+                    type="date" 
+                    title="Fecha de Inicio"
+                    value={fechaInicio}
+                    onChange={(e) => setFechaInicio(e.target.value)}
+                    className="w-full sm:w-auto pl-9 pr-2 py-2.5 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900"
+                  />
+                </div>
+                <span className="text-gray-400 font-bold hidden sm:inline">-</span>
+                <div className="relative w-full sm:w-auto">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input 
+                    type="date" 
+                    title="Fecha de Fin"
+                    value={fechaFin}
+                    onChange={(e) => setFechaFin(e.target.value)}
+                    className="w-full sm:w-auto pl-9 pr-2 py-2.5 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900"
+                  />
+                </div>
               </div>
               <button 
                 onClick={exportarCheckins}
-                className="flex items-center justify-center space-x-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm w-full sm:w-auto"
+                className="flex items-center justify-center space-x-1.5 bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors shadow-sm w-full sm:w-auto"
                 title="Descargar Reporte Excel"
               >
                 <Download className="w-4 h-4" />
-                <span className="hidden sm:inline">Exportar</span>
+                <span>Exportar Rango</span>
               </button>
             </div>
           )}
@@ -388,7 +423,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
           {selectedIds.size > 0 && (
             <button 
               onClick={intentarEliminarSeleccionados}
-              className="flex items-center space-x-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm"
+              className="flex items-center space-x-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-colors shadow-sm"
             >
               <Trash2 className="w-4 h-4" />
               <span>Eliminar ({selectedIds.size})</span>
@@ -396,7 +431,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
           )}
           <button 
             onClick={fetchData} 
-            className="p-2 text-gray-600 hover:text-[#c81474] transition-colors bg-gray-100 rounded-lg"
+            className="p-2.5 text-gray-600 hover:text-[#c81474] transition-colors bg-gray-100 rounded-lg"
           >
             <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
           </button>
@@ -532,7 +567,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
             {allFilteredData.length === 0 && !loading && (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                  No se encontraron registros válidos para esta búsqueda o fecha.
+                  No se encontraron registros válidos para esta búsqueda o rango de fechas.
                 </td>
               </tr>
             )}
