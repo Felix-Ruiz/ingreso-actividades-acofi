@@ -152,7 +152,7 @@ export default function EvaluationForm() {
         <img src="/logo.png" alt="Logo Evento" className="w-16 h-16 object-contain" />
       </div>
 
-      <h1 className="text-3xl font-extrabold text-[#c81474] mb-6 text-center drop-shadow-sm">
+      <h1 className="text-3xl font-extrabold text-white mb-6 text-center drop-shadow-md">
         {t.title}
       </h1>
 
@@ -183,7 +183,7 @@ export default function EvaluationForm() {
           />
           {/* Contenedor del ícono "i" con la clase 'group' para el hover */}
           <div className="absolute right-4 top-1/2 transform -translate-y-1/2 group">
-            <div className="w-6 h-6 bg-[#c81474] text-white rounded-full flex items-center justify-center font-bold text-sm cursor-help">
+            <div className="w-6 h-6 bg-[#311b42] text-white rounded-full flex items-center justify-center font-bold text-sm cursor-help">
               i
             </div>
             {/* Globo de Tooltip que aparece al hacer hover (group-hover) */}
@@ -225,7 +225,7 @@ export default function EvaluationForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-[#c81474] text-white font-bold py-4 rounded-xl shadow-lg hover:bg-pink-800 transition-colors mt-4 disabled:opacity-70 flex justify-center items-center"
+          className="w-full bg-[#311b42] text-white font-bold py-4 rounded-xl shadow-lg hover:bg-purple-950 transition-colors mt-4 disabled:opacity-70 flex justify-center items-center"
         >
           {loading ? (
             <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
