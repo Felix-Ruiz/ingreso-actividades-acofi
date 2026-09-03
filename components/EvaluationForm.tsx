@@ -11,6 +11,9 @@ export default function EvaluationForm() {
   
   const [loading, setLoading] = useState(false);
   const [mensaje, setMensaje] = useState<{ tipo: "error" | "exito"; texto: string } | null>(null);
+  
+  // Nuevo estado para controlar la visibilidad del globo de ayuda al hacer clic (Especial para celulares)
+  const [mostrarAyuda, setMostrarAyuda] = useState(false);
 
   const textos = {
     EN: {
@@ -170,7 +173,7 @@ export default function EvaluationForm() {
 
       <form onSubmit={handleSubmit} className="w-full space-y-4">
         
-        {/* Campo de Correo con Tooltip integrado */}
+        {/* Campo de Correo con Tooltip activado por clic */}
         <div className="relative">
           <input
             type="email"
@@ -181,17 +184,24 @@ export default function EvaluationForm() {
             className="w-full px-5 py-4 rounded-xl shadow-md border-0 focus:ring-2 focus:ring-[#c81474] outline-none text-gray-900 bg-white placeholder-gray-500 disabled:opacity-70"
             required
           />
-          {/* Contenedor del ícono "i" con la clase 'group' para el hover */}
-          <div className="absolute right-4 top-1/2 transform -translate-y-1/2 group">
-            <div className="w-6 h-6 bg-[#311b42] text-white rounded-full flex items-center justify-center font-bold text-sm cursor-help">
+          <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
+            <button
+              type="button"
+              onClick={() => setMostrarAyuda(!mostrarAyuda)}
+              onBlur={() => setMostrarAyuda(false)} // Se cierra si tocas en otro lado de la pantalla
+              className="w-6 h-6 bg-[#c81474] text-white rounded-full flex items-center justify-center font-bold text-sm"
+            >
               i
-            </div>
-            {/* Globo de Tooltip que aparece al hacer hover (group-hover) */}
-            <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-48 p-3 bg-gray-900 text-white text-xs font-medium rounded-lg shadow-xl text-center z-50 pointer-events-none">
-              {t.emailHelp}
-              {/* Triángulo/Flecha apuntando hacia abajo */}
-              <div className="absolute top-full right-2 border-4 border-transparent border-t-gray-900"></div>
-            </div>
+            </button>
+            
+            {/* Globo de ayuda renderizado condicionalmente por React */}
+            {mostrarAyuda && (
+              <div className="absolute bottom-full right-0 mb-2 w-48 p-3 bg-gray-900 text-white text-xs font-medium rounded-lg shadow-xl text-center z-50">
+                {t.emailHelp}
+                {/* Triángulo/Flecha apuntando hacia abajo */}
+                <div className="absolute top-full right-2 border-4 border-transparent border-t-gray-900"></div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -225,7 +235,7 @@ export default function EvaluationForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-[#311b42] text-white font-bold py-4 rounded-xl shadow-lg hover:bg-purple-950 transition-colors mt-4 disabled:opacity-70 flex justify-center items-center"
+          className="w-full bg-[#c81474] text-white font-bold py-4 rounded-xl shadow-lg hover:bg-pink-800 transition-colors mt-4 disabled:opacity-70 flex justify-center items-center"
         >
           {loading ? (
             <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
