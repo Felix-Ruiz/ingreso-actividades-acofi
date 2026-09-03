@@ -32,25 +32,57 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
   const cargarDatos = async () => {
     setCargando(true);
     try {
-      const { data: partData, error: errPart } = await supabase
-        .from("base_datos_participantes")
-        .select("*")
-        .eq("modulo", moduloSeleccionado)
-        .limit(5000);
-        
-      if (errPart) throw errPart;
+      // 1. CICLO ANTI-BLOQUEO PARA PARTICIPANTES
+      let allParticipantes: any[] = [];
+      let pFrom = 0;
+      let pStep = 999;
+      let pFetchMore = true;
 
-      const { data: checkinData, error: errCheck } = await supabase
-        .from("check_ins")
-        .select("correo_usuario")
-        .eq("dia_evento", todayStr)
-        .eq("modulo", moduloSeleccionado)
-        .limit(5000);
-        
-      if (errCheck) throw errCheck;
+      while (pFetchMore) {
+        const { data: partData, error: errPart } = await supabase
+          .from("base_datos_participantes")
+          .select("*")
+          .eq("modulo", moduloSeleccionado)
+          .range(pFrom, pFrom + pStep);
+          
+        if (errPart) throw errPart;
 
-      setParticipantes(partData || []);
-      setCheckinsHoy(new Set(checkinData?.map(c => c.correo_usuario) || []));
+        if (partData && partData.length > 0) {
+          allParticipantes = [...allParticipantes, ...partData];
+          pFrom += pStep + 1;
+          if (partData.length <= pStep) pFetchMore = false;
+        } else {
+          pFetchMore = false;
+        }
+      }
+
+      // 2. CICLO ANTI-BLOQUEO PARA CHECK-INS
+      let allCheckins: any[] = [];
+      let cFrom = 0;
+      let cStep = 999;
+      let cFetchMore = true;
+
+      while (cFetchMore) {
+        const { data: checkinData, error: errCheck } = await supabase
+          .from("check_ins")
+          .select("correo_usuario")
+          .eq("dia_evento", todayStr)
+          .eq("modulo", moduloSeleccionado)
+          .range(cFrom, cFrom + cStep);
+          
+        if (errCheck) throw errCheck;
+
+        if (checkinData && checkinData.length > 0) {
+          allCheckins = [...allCheckins, ...checkinData];
+          cFrom += cStep + 1;
+          if (checkinData.length <= cStep) cFetchMore = false;
+        } else {
+          cFetchMore = false;
+        }
+      }
+
+      setParticipantes(allParticipantes);
+      setCheckinsHoy(new Set(allCheckins.map(c => c.correo_usuario)));
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: error.message });
     } finally {

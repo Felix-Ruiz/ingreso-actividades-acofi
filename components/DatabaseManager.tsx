@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { Edit2, Save, X, RefreshCw, Search, Trash2, ChevronLeft, ChevronRight, User, FileText, CheckCircle, XCircle, AlertCircle, Download, Calendar } from "lucide-react";
 
-type TabType = "participantes" | "ponencias" | "checkins";
+type TabType = "participantes" | "moderadores" | "ponencias" | "checkins";
 
 export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccionado: string }) {
   const [activeTab, setActiveTab] = useState<TabType>("participantes");
@@ -45,7 +45,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
       let orderCol = "";
       let isAscending = true;
 
-      if (activeTab === "participantes") {
+      if (activeTab === "participantes" || activeTab === "moderadores") {
         table = "base_datos_participantes";
         orderCol = "nombre";
         isAscending = true;
@@ -59,42 +59,71 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
         isAscending = false;
       }
 
-      let query = supabase.from(table).select("*");
-      
-      if (activeTab !== "ponencias") {
-        query = query.eq("modulo", moduloSeleccionado);
-      }
-      
-      const { data: result, error } = await query
-        .order(orderCol, { ascending: isAscending })
-        .limit(5000);
+      // CICLO ANTI-BLOQUEO (Bypass del límite de 1000 registros de Supabase)
+      let allData: any[] = [];
+      let from = 0;
+      let step = 999;
+      let fetchMore = true;
+
+      while (fetchMore) {
+        let query = supabase.from(table).select("*").order(orderCol, { ascending: isAscending });
         
-      if (error) throw error;
-      
-      if (activeTab === "checkins" && result && result.length > 0) {
-        const correos = result.map(r => r.correo_usuario);
-        const { data: participantesData } = await supabase
-          .from("base_datos_participantes")
-          .select("correo, nombre, apellido")
-          .in("correo", correos)
-          .eq("modulo", moduloSeleccionado);
-          
-        const mapNombres: Record<string, string> = {};
-        if (participantesData) {
-          participantesData.forEach(p => {
-            mapNombres[p.correo] = `${p.nombre || ""} ${p.apellido || ""}`.trim();
-          });
+        if (activeTab === "moderadores") {
+          query = query.eq("modulo", moduloSeleccionado).eq("rol", "Moderador");
+        } else if (activeTab !== "ponencias") {
+          query = query.eq("modulo", moduloSeleccionado);
         }
         
-        const resultConNombres = result.map(r => ({
+        const { data: result, error } = await query.range(from, from + step);
+        if (error) throw error;
+        
+        if (result && result.length > 0) {
+          allData = [...allData, ...result];
+          from += step + 1;
+          // Si nos devolvió menos de 1000, significa que ya no hay más páginas
+          if (result.length <= step) {
+            fetchMore = false;
+          }
+        } else {
+          fetchMore = false;
+        }
+      }
+      
+      // Lógica específica para mapear nombres en los Check-ins (También usando ciclo anti-bloqueo)
+      if (activeTab === "checkins" && allData.length > 0) {
+        let allParts: any[] = [];
+        let pFrom = 0;
+        let pFetchMore = true;
+
+        while (pFetchMore) {
+          const { data: pResult, error: pError } = await supabase
+            .from("base_datos_participantes")
+            .select("correo, nombre, apellido")
+            .eq("modulo", moduloSeleccionado)
+            .range(pFrom, pFrom + 999);
+            
+          if (pError) throw pError;
+          if (pResult && pResult.length > 0) {
+            allParts = [...allParts, ...pResult];
+            pFrom += 1000;
+            if (pResult.length < 1000) pFetchMore = false;
+          } else {
+            pFetchMore = false;
+          }
+        }
+          
+        const mapNombres: Record<string, string> = {};
+        allParts.forEach(p => {
+          mapNombres[p.correo] = `${p.nombre || ""} ${p.apellido || ""}`.trim();
+        });
+        
+        allData = allData.map(r => ({
           ...r,
           nombre_completo: mapNombres[r.correo_usuario] || "-"
         }));
-        
-        setData(resultConNombres);
-      } else {
-        setData(result || []);
       }
+
+      setData(allData);
       
     } catch (error) {
       console.error("Error cargando datos:", error);
@@ -123,7 +152,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     e.preventDefault();
     setSaving(true);
     try {
-      if (activeTab === "participantes") {
+      if (activeTab === "participantes" || activeTab === "moderadores") {
         const { error } = await supabase
           .from("base_datos_participantes")
           .update({
@@ -189,7 +218,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   );
 
   const getIdKey = () => {
-    if (activeTab === "participantes") return "correo";
+    if (activeTab === "participantes" || activeTab === "moderadores") return "correo";
     if (activeTab === "ponencias") return "codigo_ponencia";
     return "id";
   };
@@ -232,7 +261,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     setLoading(true);
     try {
       let table = "";
-      if (activeTab === "participantes") table = "base_datos_participantes";
+      if (activeTab === "participantes" || activeTab === "moderadores") table = "base_datos_participantes";
       if (activeTab === "ponencias") table = "ponencias";
       if (activeTab === "checkins") table = "check_ins";
 
@@ -344,6 +373,15 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
         >
           Participantes
         </button>
+
+        <button 
+          onClick={() => setActiveTab("moderadores")} 
+          className={`flex-1 py-4 text-sm font-bold transition-colors ${
+            activeTab === "moderadores" ? "bg-[#311b42] text-white" : "bg-gray-50 text-gray-900 hover:bg-gray-100"
+          }`}
+        >
+          Moderadores
+        </button>
         
         {moduloSeleccionado === "Ponencias" && (
           <button 
@@ -450,7 +488,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                   className="w-4 h-4 rounded text-[#c81474] focus:ring-[#c81474]"
                 />
               </th>
-              {activeTab === "participantes" && (
+              {(activeTab === "participantes" || activeTab === "moderadores") && (
                 <>
                   <th className="px-4 py-3">Nombre Completo</th>
                   <th className="px-4 py-3">Correo</th>
@@ -493,15 +531,15 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
                   />
                 </td>
                 
-                {/* Tabla de Participantes */}
-                {activeTab === "participantes" && (
+                {/* Tabla de Participantes / Moderadores */}
+                {(activeTab === "participantes" || activeTab === "moderadores") && (
                   <>
                     <td className="px-4 py-3 font-bold text-gray-900">
                       {item.nombre || "-"} {item.apellido || ""}
                     </td>
                     <td className="px-4 py-3 text-gray-700">{item.correo}</td>
                     <td className="px-4 py-3">
-                      <span className="bg-pink-100 text-[#c81474] px-2 py-1 rounded-full text-xs font-bold">
+                      <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.rol === "Moderador" ? "bg-purple-100 text-purple-700" : "bg-pink-100 text-[#c81474]"}`}>
                         {item.rol || "Participante"}
                       </span>
                     </td>
@@ -606,8 +644,8 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center bg-[#311b42] p-5 text-white">
               <h3 className="font-extrabold text-lg flex items-center space-x-2">
-                {activeTab === "participantes" ? <User className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
-                <span>Editar {activeTab === "participantes" ? "Participante" : "Ponencia"}</span>
+                {(activeTab === "participantes" || activeTab === "moderadores") ? <User className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                <span>Editar {(activeTab === "participantes" || activeTab === "moderadores") ? "Participante" : "Ponencia"}</span>
               </h3>
               <button 
                 onClick={() => setIsEditModalOpen(false)} 
@@ -619,7 +657,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
             
             <form onSubmit={guardarEdicion} className="p-6 space-y-4">
               
-              {activeTab === "participantes" && (
+              {(activeTab === "participantes" || activeTab === "moderadores") && (
                 <>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
