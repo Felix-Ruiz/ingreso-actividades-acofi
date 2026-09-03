@@ -16,6 +16,7 @@ export default function EvaluationForm() {
     EN: {
       title: "Paper Evaluation",
       emailLabel: "Registered Email",
+      emailHelp: "Enter the email you used to register for the event.",
       paperLabel: "Paper Code",
       ratingLabel: "Rating (0-1000)",
       submit: "Submit rating",
@@ -30,6 +31,7 @@ export default function EvaluationForm() {
     ES: {
       title: "Evaluación de Ponencia",
       emailLabel: "Correo Registrado",
+      emailHelp: "Ingrese el correo electrónico con el que se registró en el evento.",
       paperLabel: "Código de Ponencia",
       ratingLabel: "Calificación (0-1000)",
       submit: "Enviar calificación",
@@ -167,6 +169,8 @@ export default function EvaluationForm() {
       )}
 
       <form onSubmit={handleSubmit} className="w-full space-y-4">
+        
+        {/* Campo de Correo con Tooltip integrado */}
         <div className="relative">
           <input
             type="email"
@@ -177,8 +181,17 @@ export default function EvaluationForm() {
             className="w-full px-5 py-4 rounded-xl shadow-md border-0 focus:ring-2 focus:ring-[#c81474] outline-none text-gray-900 bg-white placeholder-gray-500 disabled:opacity-70"
             required
           />
-          <div className="absolute right-4 top-1/2 transform -translate-y-1/2 w-6 h-6 bg-[#c81474] text-white rounded-full flex items-center justify-center font-bold text-sm cursor-help">
-            i
+          {/* Contenedor del ícono "i" con la clase 'group' para el hover */}
+          <div className="absolute right-4 top-1/2 transform -translate-y-1/2 group">
+            <div className="w-6 h-6 bg-[#c81474] text-white rounded-full flex items-center justify-center font-bold text-sm cursor-help">
+              i
+            </div>
+            {/* Globo de Tooltip que aparece al hacer hover (group-hover) */}
+            <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-48 p-3 bg-gray-900 text-white text-xs font-medium rounded-lg shadow-xl text-center z-50 pointer-events-none">
+              {t.emailHelp}
+              {/* Triángulo/Flecha apuntando hacia abajo */}
+              <div className="absolute top-full right-2 border-4 border-transparent border-t-gray-900"></div>
+            </div>
           </div>
         </div>
 
