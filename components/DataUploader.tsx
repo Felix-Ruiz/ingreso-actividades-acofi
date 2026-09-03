@@ -72,20 +72,21 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         throw new Error("No se encontraron registros válidos de participantes.");
       }
 
-      // Paso 2: Protección de Roles - Consultar quiénes ya son Moderadores en la BD
-      const correosExtraidos = participantesTemp.map(p => p.correo);
-      
+      // Paso 2: Protección de Roles (Optimizada para evitar Error 400)
+      // Traemos TODOS los moderadores actuales de este módulo (suele ser una lista corta, no rompe el servidor)
       const { data: moderadoresActuales, error: errConsulta } = await supabase
         .from("base_datos_participantes")
         .select("correo")
         .eq("modulo", moduloSeleccionado)
-        .eq("rol", "Moderador")
-        .in("correo", correosExtraidos);
+        .eq("rol", "Moderador");
 
-      if (errConsulta) throw new Error("Error verificando roles previos en la base de datos.");
+      if (errConsulta) {
+        console.error(errConsulta);
+        throw new Error("Error verificando roles previos en la base de datos.");
+      }
 
-      // Crear un Set con los correos que YA son moderadores para búsqueda ultrarrápida
-      const setModeradores = new Set(moderadoresActuales?.map(m => m.correo) || []);
+      // Crear un Set con los correos que YA son moderadores para búsqueda ultrarrápida local
+      const setModeradores = new Set(moderadoresActuales?.map(m => m.correo.toLowerCase()) || []);
 
       // Paso 3: Reconstruir el arreglo final forzando el rol "Moderador" a quienes ya lo tenían
       const participantesFinales = participantesTemp.map(p => {
