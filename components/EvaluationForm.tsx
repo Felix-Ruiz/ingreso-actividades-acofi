@@ -12,7 +12,6 @@ export default function EvaluationForm() {
   const [loading, setLoading] = useState(false);
   const [mensaje, setMensaje] = useState<{ tipo: "error" | "exito"; texto: string } | null>(null);
   
-  // Nuevo estado para controlar la visibilidad del globo de ayuda al hacer clic (Especial para celulares)
   const [mostrarAyuda, setMostrarAyuda] = useState(false);
 
   const textos = {
@@ -60,49 +59,50 @@ export default function EvaluationForm() {
     const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 
     try {
-      // 1. Buscamos al usuario ESTRICTAMENTE en la lista combinada (usando .ilike)
-      const { data: usuario, error: errUsuario } = await supabase
+      // 1. Buscamos al usuario usando limit(1) para evitar pánico de duplicados
+      const { data: usuarioData, error: errUsuario } = await supabase
         .from("base_datos_participantes")
         .select("nombre, rol")
         .eq("correo", correoLimpio)
         .ilike("modulo", "%Ponencias%")
-        .single();
+        .limit(1);
 
-      if (!usuario || errUsuario) throw new Error(t.uNotExist);
+      if (!usuarioData || usuarioData.length === 0) throw new Error(t.uNotExist);
+      const usuario = usuarioData[0];
 
-      // 2. Si NO es Moderador, validamos que haya hecho Check-in en el módulo Ponencias
+      // 2. Si NO es Moderador, validamos Check-in con limit(1)
       if (usuario.rol !== "Moderador") {
-        const { data: checkin } = await supabase
+        const { data: checkinData } = await supabase
           .from("check_ins")
           .select("id")
           .eq("correo_usuario", correoLimpio)
           .eq("dia_evento", todayStr)
           .eq("estado", "ingresó")
           .eq("modulo", "Ponencias")
-          .single();
+          .limit(1);
 
-        if (!checkin) throw new Error(t.noCheckin);
+        if (!checkinData || checkinData.length === 0) throw new Error(t.noCheckin);
       }
 
-      // 3. Validar que el código de ponencia exista y sea para hoy
-      const { data: ponencia, error: errPonencia } = await supabase
+      // 3. Validar Ponencia con limit(1)
+      const { data: ponenciaData, error: errPonencia } = await supabase
         .from("ponencias")
         .select("fecha_programada")
         .eq("codigo_ponencia", codigoLimpio)
-        .single();
+        .limit(1);
 
-      if (!ponencia || errPonencia) throw new Error(t.pNotExist);
-      if (ponencia.fecha_programada !== todayStr) throw new Error(t.dateInvalid);
+      if (!ponenciaData || ponenciaData.length === 0) throw new Error(t.pNotExist);
+      if (ponenciaData[0].fecha_programada !== todayStr) throw new Error(t.dateInvalid);
 
-      // 4. Validar si ya envió una calificación previa
+      // 4. Validar Evaluación Previa con limit(1)
       const { data: evaluacionPrevia } = await supabase
         .from("evaluaciones")
         .select("id")
         .eq("correo_usuario", correoLimpio)
         .eq("codigo_ponencia", codigoLimpio)
-        .single();
+        .limit(1);
 
-      if (evaluacionPrevia) throw new Error(t.already);
+      if (evaluacionPrevia && evaluacionPrevia.length > 0) throw new Error(t.already);
 
       // 5. Guardar la calificación
       const { error: errInsert } = await supabase
@@ -172,8 +172,6 @@ export default function EvaluationForm() {
       )}
 
       <form onSubmit={handleSubmit} className="w-full space-y-4">
-        
-        {/* Campo de Correo con Tooltip activado por clic */}
         <div className="relative">
           <input
             type="email"
@@ -188,17 +186,14 @@ export default function EvaluationForm() {
             <button
               type="button"
               onClick={() => setMostrarAyuda(!mostrarAyuda)}
-              onBlur={() => setMostrarAyuda(false)} // Se cierra si tocas en otro lado de la pantalla
+              onBlur={() => setMostrarAyuda(false)}
               className="w-6 h-6 bg-[#c81474] text-white rounded-full flex items-center justify-center font-bold text-sm"
             >
               i
             </button>
-            
-            {/* Globo de ayuda renderizado condicionalmente por React */}
             {mostrarAyuda && (
               <div className="absolute bottom-full right-0 mb-2 w-48 p-3 bg-gray-900 text-white text-xs font-medium rounded-lg shadow-xl text-center z-50">
                 {t.emailHelp}
-                {/* Triángulo/Flecha apuntando hacia abajo */}
                 <div className="absolute top-full right-2 border-4 border-transparent border-t-gray-900"></div>
               </div>
             )}
