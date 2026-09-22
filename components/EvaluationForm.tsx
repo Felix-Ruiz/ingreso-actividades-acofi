@@ -60,12 +60,12 @@ export default function EvaluationForm() {
     const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 
     try {
-      // 1. Buscamos al usuario ESTRICTAMENTE en el Excel/Módulo de Ponencias
+      // 1. Buscamos al usuario ESTRICTAMENTE en la lista combinada (usando .ilike)
       const { data: usuario, error: errUsuario } = await supabase
         .from("base_datos_participantes")
         .select("nombre, rol")
         .eq("correo", correoLimpio)
-        .eq("modulo", "Ponencias")
+        .ilike("modulo", "%Ponencias%")
         .single();
 
       if (!usuario || errUsuario) throw new Error(t.uNotExist);

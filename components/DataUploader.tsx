@@ -147,33 +147,67 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
       // 1. Limpiamos la propiedad 'fila' que era solo para la UI
       const datosFinales = datosPuros.map(({ fila, ...resto }) => resto);
 
-      // 2. Protección de Roles (Evitar bajar de rango a Moderadores)
-      const { data: moderadoresActuales, error: errConsulta } = await supabase
-        .from("base_datos_participantes")
-        .select("correo")
-        .eq("modulo", moduloSeleccionado)
-        .eq("rol", "Moderador");
+      // 2. CICLO ANTI-BLOQUEO: Traer TODOS los participantes previos de la base de datos (Todos los módulos)
+      let todosExistentes: any[] = [];
+      let pFrom = 0;
+      let pStep = 999;
+      let pFetchMore = true;
 
-      if (errConsulta) throw new Error("Error verificando roles previos en la base de datos.");
+      while (pFetchMore) {
+        const { data: partData, error: errPart } = await supabase
+          .from("base_datos_participantes")
+          .select("correo, modulo, rol")
+          .range(pFrom, pFrom + pStep);
+          
+        if (errPart) throw errPart;
 
-      const setModeradores = new Set(moderadoresActuales?.map(m => m.correo.toLowerCase()) || []);
-
-      // 3. Reconstruir arreglo forzando rol "Moderador" a quienes ya lo eran
-      const datosProtegidos = datosFinales.map(p => {
-        if (setModeradores.has(p.correo)) {
-          return { ...p, rol: "Moderador" };
+        if (partData && partData.length > 0) {
+          todosExistentes = [...todosExistentes, ...partData];
+          pFrom += pStep + 1;
+          if (partData.length <= pStep) pFetchMore = false;
+        } else {
+          pFetchMore = false;
         }
-        return p;
+      }
+
+      // Crear mapa ultra-rápido de los existentes en DB
+      const mapaExistentes = new Map(todosExistentes.map(e => [e.correo.toLowerCase(), e]));
+
+      // 3. BLINDAJE Y COMBINACIÓN: Mezclar módulos y roles de forma inteligente para no sobrescribir
+      const datosProtegidos = datosFinales.map(p => {
+        const existente = mapaExistentes.get(p.correo.toLowerCase());
+        let nuevoModulo = moduloSeleccionado;
+        let nuevoRol = p.rol;
+
+        if (existente) {
+          // Si era moderador, nadie le quita ese rol
+          if (existente.rol === "Moderador") nuevoRol = "Moderador";
+          
+          // Combinar módulos para que no se borren de otras listas (Ej: "Ponencias, Stands")
+          if (existente.modulo) {
+            const modulosPrevios = existente.modulo.split(",").map((m: string) => m.trim());
+            if (!modulosPrevios.includes(moduloSeleccionado)) {
+              modulosPrevios.push(moduloSeleccionado);
+            }
+            nuevoModulo = modulosPrevios.join(", ");
+          }
+        }
+
+        return { ...p, rol: nuevoRol, modulo: nuevoModulo };
       });
 
-      // 4. Subir a Supabase
-      const { error } = await supabase
-        .from("base_datos_participantes")
-        .upsert(datosProtegidos);
-        
-      if (error) throw error;
+      // 4. SUBIDA POR LOTES (Batch) para evitar límites y bloqueos de red en archivos grandes (>1000 filas)
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < datosProtegidos.length; i += BATCH_SIZE) {
+        const lote = datosProtegidos.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase
+          .from("base_datos_participantes")
+          .upsert(lote);
+          
+        if (error) throw error;
+      }
 
-      setMensaje({ tipo: "exito", texto: `Se cargaron ${datosProtegidos.length} participantes únicos exitosamente en el módulo: ${moduloSeleccionado}.` });
+      setMensaje({ tipo: "exito", texto: `Se cargaron y blindaron ${datosProtegidos.length} participantes únicos exitosamente en el módulo: ${moduloSeleccionado}.` });
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: `Error al subir a base de datos: ${error.message}` });
     } finally {

@@ -50,7 +50,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
         .from("base_datos_participantes")
         .select("nombre, apellido")
         .eq("correo", correo)
-        .eq("modulo", moduloSeleccionado)
+        .ilike("modulo", `%${moduloSeleccionado}%`)
         .single();
 
       if (!usuario || errUsuario) {

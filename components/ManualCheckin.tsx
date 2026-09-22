@@ -32,7 +32,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
   const cargarDatos = async () => {
     setCargando(true);
     try {
-      // 1. CICLO ANTI-BLOQUEO PARA PARTICIPANTES
+      // 1. CICLO ANTI-BLOQUEO PARA PARTICIPANTES (Actualizado para búsqueda inteligente)
       let allParticipantes: any[] = [];
       let pFrom = 0;
       let pStep = 999;
@@ -42,7 +42,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         const { data: partData, error: errPart } = await supabase
           .from("base_datos_participantes")
           .select("*")
-          .eq("modulo", moduloSeleccionado)
+          .ilike("modulo", `%${moduloSeleccionado}%`) // Búsqueda inteligente: encuentra "Ponencias" dentro de "Ponencias, Stands"
           .range(pFrom, pFrom + pStep);
           
         if (errPart) throw errPart;
@@ -147,7 +147,28 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
     const correoLimpio = nuevoForm.correo.trim().toLowerCase();
 
     try {
-      // 1. Insertar en participantes
+      // 1. Validar primero si ya existe para blindar módulos y no sobreescribir
+      const { data: existente } = await supabase
+        .from("base_datos_participantes")
+        .select("modulo, rol")
+        .eq("correo", correoLimpio)
+        .single();
+
+      let modulosFinal = moduloSeleccionado;
+      let rolFinal = nuevoForm.rol;
+
+      if (existente) {
+        if (existente.rol === "Moderador") rolFinal = "Moderador"; // Respeta a los moderadores
+        if (existente.modulo) {
+          const arrModulos = existente.modulo.split(",").map((m: string) => m.trim());
+          if (!arrModulos.includes(moduloSeleccionado)) {
+            arrModulos.push(moduloSeleccionado);
+          }
+          modulosFinal = arrModulos.join(", "); // Ej: "Ponencias, Stands"
+        }
+      }
+
+      // 2. Insertar o Actualizar en participantes de forma segura
       const { error: errPart } = await supabase
         .from("base_datos_participantes")
         .upsert([{
@@ -155,13 +176,13 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
           nombre: nuevoForm.nombre.trim(),
           apellido: nuevoForm.apellido.trim(),
           numero_documento: nuevoForm.numero_documento.trim() || null,
-          rol: nuevoForm.rol,
-          modulo: moduloSeleccionado
+          rol: rolFinal,
+          modulo: modulosFinal
         }]);
 
       if (errPart) throw errPart;
 
-      // 2. Dar ingreso automático (Check-in) para hoy
+      // 3. Dar ingreso automático (Check-in) para hoy
       const { error: errCheck } = await supabase
         .from("check_ins")
         .insert([{ 
@@ -173,14 +194,14 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
 
       if (errCheck) throw errCheck;
 
-      // 3. Actualizar estado local para que aparezca inmediatamente
+      // 4. Actualizar estado local para que aparezca inmediatamente
       setParticipantes(prev => [{
         correo: correoLimpio,
         nombre: nuevoForm.nombre.trim(),
         apellido: nuevoForm.apellido.trim(),
         numero_documento: nuevoForm.numero_documento.trim() || null,
-        rol: nuevoForm.rol,
-        modulo: moduloSeleccionado
+        rol: rolFinal,
+        modulo: modulosFinal
       }, ...prev]);
 
       const newSet = new Set(checkinsHoy);
