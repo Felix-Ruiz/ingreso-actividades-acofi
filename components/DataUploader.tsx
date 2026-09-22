@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import ExcelJS from "exceljs";
-import { UploadCloud, Users, FileText, AlertCircle, CheckCircle } from "lucide-react";
+import { UploadCloud, Users, FileText, AlertCircle, CheckCircle, FileWarning, X } from "lucide-react";
 
 export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionado: string }) {
   const [cargando, setCargando] = useState<"participantes" | "ponencias" | null>(null);
@@ -11,6 +11,12 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
   
   const fileInputParticipantes = useRef<HTMLInputElement>(null);
   const fileInputPonencias = useRef<HTMLInputElement>(null);
+
+  // Estados para la gestión manual de duplicados
+  const [modalDuplicados, setModalDuplicados] = useState(false);
+  const [conflictos, setConflictos] = useState<Record<string, any[]>>({});
+  const [seleccionados, setSeleccionados] = useState<Record<string, number>>({});
+  const [listosParaSubir, setListosParaSubir] = useState<any[]>([]);
 
   const procesarParticipantes = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -25,7 +31,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
       await workbook.xlsx.load(buffer);
       const worksheet = workbook.worksheets[0];
 
-      const participantesTemp: any[] = [];
       const headerMap: { [key: string]: number } = {};
 
       const headerRow = worksheet.getRow(1);
@@ -43,7 +48,9 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         throw new Error("El archivo no contiene las columnas necesarias (CORREO ELECTRÓNICO, NOMBRE, APELLIDOS).");
       }
 
-      // Paso 1: Extraer datos del Excel a un arreglo temporal
+      // Agrupar filas por correo para detectar duplicados dentro del mismo Excel
+      const mapParticipantes = new Map<string, any[]>();
+
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return;
         
@@ -56,7 +63,8 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
           const telefono = headerMap.telefono ? row.getCell(headerMap.telefono).text?.trim() : null;
           const documento = headerMap.documento ? row.getCell(headerMap.documento).text?.trim() : null;
           
-          participantesTemp.push({ 
+          const participante = { 
+            fila: rowNumber,
             correo, 
             nombre, 
             apellido, 
@@ -64,48 +72,110 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
             telefono, 
             numero_documento: documento, 
             modulo: moduloSeleccionado 
-          });
+          };
+
+          if (!mapParticipantes.has(correo)) {
+            mapParticipantes.set(correo, []);
+          }
+          mapParticipantes.get(correo)?.push(participante);
         }
       });
 
-      if (participantesTemp.length === 0) {
-        throw new Error("No se encontraron registros válidos de participantes.");
+      const unicos: any[] = [];
+      const repetidos: Record<string, any[]> = {};
+      const seleccionesIniciales: Record<string, number> = {};
+
+      mapParticipantes.forEach((filas, correo) => {
+        if (filas.length === 1) {
+          unicos.push(filas[0]);
+        } else {
+          repetidos[correo] = filas;
+          // Por defecto, sugerimos quedarse con la última fila donde apareció el correo
+          seleccionesIniciales[correo] = filas[filas.length - 1].fila;
+        }
+      });
+
+      if (Object.keys(repetidos).length > 0) {
+        // Hay duplicados: Pausamos la carga y abrimos el Modal
+        setListosParaSubir(unicos);
+        setConflictos(repetidos);
+        setSeleccionados(seleccionesIniciales);
+        setModalDuplicados(true);
+        setCargando(null); // Detenemos el loader para que el usuario pueda decidir
+      } else {
+        // Todo está limpio, pasamos directo a subir
+        if (unicos.length === 0) throw new Error("No se encontraron registros válidos de participantes.");
+        await finalizarSubidaParticipantes(unicos);
       }
 
-      // Paso 2: Protección de Roles (Optimizada para evitar Error 400)
-      // Traemos TODOS los moderadores actuales de este módulo (suele ser una lista corta, no rompe el servidor)
+    } catch (error: any) {
+      setMensaje({ tipo: "error", texto: `Error: ${error.message}` });
+      setCargando(null);
+      if (fileInputParticipantes.current) fileInputParticipantes.current.value = "";
+    }
+  };
+
+  const resolverConflictosYSubir = async () => {
+    setModalDuplicados(false);
+    setCargando("participantes");
+    
+    try {
+      const resolucion: any[] = [];
+      Object.entries(conflictos).forEach(([correo, filas]) => {
+        const filaSeleccionada = seleccionados[correo];
+        if (filaSeleccionada !== -1) {
+          const rowToKeep = filas.find(f => f.fila === filaSeleccionada);
+          if (rowToKeep) resolucion.push(rowToKeep);
+        }
+      });
+
+      const datosFinales = [...listosParaSubir, ...resolucion];
+
+      if (datosFinales.length === 0) {
+        throw new Error("Se omitieron todos los registros y no quedó ninguno válido para subir.");
+      }
+
+      await finalizarSubidaParticipantes(datosFinales);
+    } catch (error: any) {
+      setMensaje({ tipo: "error", texto: `Error: ${error.message}` });
+      setCargando(null);
+    }
+  };
+
+  const finalizarSubidaParticipantes = async (datosPuros: any[]) => {
+    try {
+      // 1. Limpiamos la propiedad 'fila' que era solo para la UI
+      const datosFinales = datosPuros.map(({ fila, ...resto }) => resto);
+
+      // 2. Protección de Roles (Evitar bajar de rango a Moderadores)
       const { data: moderadoresActuales, error: errConsulta } = await supabase
         .from("base_datos_participantes")
         .select("correo")
         .eq("modulo", moduloSeleccionado)
         .eq("rol", "Moderador");
 
-      if (errConsulta) {
-        console.error(errConsulta);
-        throw new Error("Error verificando roles previos en la base de datos.");
-      }
+      if (errConsulta) throw new Error("Error verificando roles previos en la base de datos.");
 
-      // Crear un Set con los correos que YA son moderadores para búsqueda ultrarrápida local
       const setModeradores = new Set(moderadoresActuales?.map(m => m.correo.toLowerCase()) || []);
 
-      // Paso 3: Reconstruir el arreglo final forzando el rol "Moderador" a quienes ya lo tenían
-      const participantesFinales = participantesTemp.map(p => {
+      // 3. Reconstruir arreglo forzando rol "Moderador" a quienes ya lo eran
+      const datosProtegidos = datosFinales.map(p => {
         if (setModeradores.has(p.correo)) {
-          return { ...p, rol: "Moderador" }; // Fuerza a retener su rol de moderador
+          return { ...p, rol: "Moderador" };
         }
-        return p; // Si no era moderador, deja el rol que traía el Excel
+        return p;
       });
 
-      // Paso 4: Subir a Supabase
+      // 4. Subir a Supabase
       const { error } = await supabase
         .from("base_datos_participantes")
-        .upsert(participantesFinales);
+        .upsert(datosProtegidos);
         
       if (error) throw error;
 
-      setMensaje({ tipo: "exito", texto: `Se cargaron ${participantesFinales.length} participantes para el módulo: ${moduloSeleccionado}. Se retuvieron los roles de moderador existentes.` });
+      setMensaje({ tipo: "exito", texto: `Se cargaron ${datosProtegidos.length} participantes únicos exitosamente en el módulo: ${moduloSeleccionado}.` });
     } catch (error: any) {
-      setMensaje({ tipo: "error", texto: `Error: ${error.message}` });
+      setMensaje({ tipo: "error", texto: `Error al subir a base de datos: ${error.message}` });
     } finally {
       setCargando(null);
       if (fileInputParticipantes.current) fileInputParticipantes.current.value = "";
@@ -125,7 +195,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
       await workbook.xlsx.load(buffer);
       const worksheet = workbook.worksheets[0];
 
-      const ponencias: any[] = [];
+      const mapPonencias = new Map();
       const headerMap: { [key: string]: number } = {};
 
       const headerRow = worksheet.getRow(1);
@@ -160,7 +230,8 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         }
 
         if (codigo && nombre && fechaStr) {
-          ponencias.push({ 
+          // Si una ponencia viene duplicada en el Excel, sobreescribe internamente sin molestar al usuario
+          mapPonencias.set(codigo, { 
             codigo_ponencia: codigo, 
             nombre_ponencia: nombre, 
             fecha_programada: fechaStr 
@@ -168,17 +239,19 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         }
       });
 
-      if (ponencias.length === 0) {
+      const ponenciasFinales = Array.from(mapPonencias.values());
+
+      if (ponenciasFinales.length === 0) {
         throw new Error("No se encontraron ponencias válidas.");
       }
 
       const { error } = await supabase
         .from("ponencias")
-        .upsert(ponencias);
+        .upsert(ponenciasFinales);
         
       if (error) throw error;
 
-      setMensaje({ tipo: "exito", texto: `Se cargaron ${ponencias.length} ponencias exitosamente.` });
+      setMensaje({ tipo: "exito", texto: `Se cargaron ${ponenciasFinales.length} ponencias exitosamente.` });
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: `Error: ${error.message}` });
     } finally {
@@ -273,6 +346,94 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
           </div>
         )}
       </div>
+
+      {/* MODAL PARA RESOLVER CONFLICTOS DUPLICADOS */}
+      {modalDuplicados && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center bg-[#311b42] p-5 text-white shrink-0">
+              <h3 className="font-extrabold text-lg flex items-center space-x-2">
+                <FileWarning className="w-5 h-5" />
+                <span>Conflictos Detectados en el Excel</span>
+              </h3>
+              <button 
+                onClick={() => {
+                  setModalDuplicados(false);
+                  if (fileInputParticipantes.current) fileInputParticipantes.current.value = "";
+                }} 
+                className="text-gray-300 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto grow bg-gray-50">
+              <p className="text-sm text-gray-600 font-medium mb-6">
+                El archivo Excel contiene participantes con el mismo correo electrónico en distintas filas. Por favor, selecciona cuál versión deseas guardar, o elige omitirlos.
+              </p>
+
+              <div className="space-y-6">
+                {Object.entries(conflictos).map(([correo, filas]) => (
+                  <div key={correo} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                    <h4 className="font-extrabold text-[#c81474] mb-3 text-sm">{correo}</h4>
+                    <div className="space-y-3">
+                      {filas.map(f => (
+                        <label key={f.fila} className="flex items-start space-x-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer border border-transparent hover:border-gray-100 transition-colors">
+                          <input 
+                            type="radio" 
+                            name={`radio-${correo}`}
+                            checked={seleccionados[correo] === f.fila} 
+                            onChange={() => setSeleccionados({...seleccionados, [correo]: f.fila})}
+                            className="mt-1 w-4 h-4 text-[#c81474] focus:ring-[#c81474] border-gray-300"
+                          />
+                          <div className="flex flex-col">
+                            <span className="text-sm font-bold text-gray-900">
+                              Fila {f.fila}: {f.nombre} {f.apellido}
+                            </span>
+                            <span className="text-xs text-gray-500 mt-0.5">
+                              Doc: {f.numero_documento || "N/A"} • Rol: {f.rol}
+                            </span>
+                          </div>
+                        </label>
+                      ))}
+                      <div className="border-t border-gray-100 my-2"></div>
+                      <label className="flex items-center space-x-3 p-2 rounded-lg hover:bg-red-50 cursor-pointer transition-colors text-red-600">
+                        <input 
+                          type="radio" 
+                          name={`radio-${correo}`}
+                          checked={seleccionados[correo] === -1} 
+                          onChange={() => setSeleccionados({...seleccionados, [correo]: -1})}
+                          className="w-4 h-4 text-red-600 focus:ring-red-600 border-red-300"
+                        />
+                        <span className="text-sm font-bold">Omitir (No subir este correo)</span>
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-gray-200 bg-white shrink-0 flex space-x-3">
+              <button 
+                onClick={() => {
+                  setModalDuplicados(false);
+                  if (fileInputParticipantes.current) fileInputParticipantes.current.value = "";
+                }}
+                className="flex-1 bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 font-bold py-3.5 rounded-xl transition-colors"
+              >
+                Cancelar Subida
+              </button>
+              <button 
+                onClick={resolverConflictosYSubir}
+                className="flex-1 bg-[#c81474] hover:bg-pink-800 text-white font-bold py-3.5 rounded-xl transition-colors shadow-md"
+              >
+                Confirmar y Subir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
