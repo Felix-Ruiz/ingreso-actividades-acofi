@@ -116,14 +116,77 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
     fileInputRef.current?.click();
   };
 
+  // ----------------------------------------------------------------------
+  // PRE-PROCESADOR DE IMAGEN (LA SOLUCIÓN DEFINITIVA PARA iPHONE)
+  // Redimensiona la foto antes de leerla para no saturar la memoria
+  // ----------------------------------------------------------------------
+  const comprimirYCorregirImagen = (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 800; // Resolución óptima para lectura de QRs
+        const MAX_HEIGHT = 800;
+        let width = img.width;
+        let height = img.height;
+
+        // Mantener proporciones al redimensionar
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        
+        if (!ctx) return reject(new Error("No se pudo crear contexto de imagen"));
+        
+        // Dibujar un fondo blanco por si la imagen tiene transparencias raras
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Convertir de vuelta a archivo ligero
+        canvas.toBlob((blob) => {
+          if (!blob) return reject(new Error("Error al generar la imagen comprimida"));
+          const newFile = new File([blob], "qr-optimizado.jpg", {
+            type: "image/jpeg",
+          });
+          resolve(newFile);
+        }, "image/jpeg", 0.9);
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Error al cargar la imagen nativa"));
+      };
+
+      img.src = url;
+    });
+  };
+
   const procesarFotoNativa = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
+      const fileOriginal = e.target.files[0];
       setResultado({ tipo: "cargando", mensaje: "Analizando fotografía..." });
       
       try {
+        // Ejecutamos la compresión mágica antes de intentar leer
+        const fileOptimizado = await comprimirYCorregirImagen(fileOriginal);
+
         const html5QrCode = new Html5Qrcode("hidden-qr-reader");
-        const decodedText = await html5QrCode.scanFile(file, true);
+        const decodedText = await html5QrCode.scanFile(fileOptimizado, true);
         await onScanSuccess(decodedText);
       } catch (err) {
         mostrarResultadoTemporal({ 
@@ -203,7 +266,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
       {/* ÁREA CENTRAL PRINCIPAL */}
       <div className="w-full max-w-md flex flex-col items-center justify-center mt-12">
         
-        {/* CORRECCIÓN iOS: limitamos a jpeg y png */}
+        {/* Input con restricción de formato recomendada para iOS */}
         <input 
           type="file" 
           accept="image/jpeg, image/png" 
