@@ -281,13 +281,17 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
             return (
               <div 
                 key={p.correo} 
-                className={`border rounded-xl p-4 flex justify-between items-center transition-colors ${isCheckedIn ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}
+                // CORRECCIÓN UI: Añadido gap-4 para separar el texto del botón
+                className={`border rounded-xl p-4 flex justify-between items-center gap-4 transition-colors ${isCheckedIn ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}
               >
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900">
+                {/* CORRECCIÓN UI: Añadido flex-1 min-w-0 para que no empuje el botón */}
+                <div className="flex-1 min-w-0">
+                  {/* CORRECCIÓN UI: truncate para nombres largos */}
+                  <h3 className="text-lg font-bold text-gray-900 truncate">
                     {p.nombre} {p.apellido}
                   </h3>
-                  <p className="text-gray-600 text-sm">
+                  {/* CORRECCIÓN UI: break-all para correos largos */}
+                  <p className="text-gray-600 text-sm break-all">
                     {p.correo} {p.numero_documento ? `| Doc: ${p.numero_documento}` : ""}
                   </p>
                   <span className="inline-block mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-md font-semibold">

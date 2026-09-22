@@ -203,9 +203,10 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
       {/* ÁREA CENTRAL PRINCIPAL */}
       <div className="w-full max-w-md flex flex-col items-center justify-center mt-12">
         
+        {/* CORRECCIÓN iOS: limitamos a jpeg y png */}
         <input 
           type="file" 
-          accept="image/*" 
+          accept="image/jpeg, image/png" 
           capture="environment" 
           ref={fileInputRef} 
           className="hidden" 
