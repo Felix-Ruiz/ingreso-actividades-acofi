@@ -6,11 +6,12 @@ import ExcelJS from "exceljs";
 import { UploadCloud, Users, FileText, AlertCircle, CheckCircle, FileWarning, X } from "lucide-react";
 
 export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionado: string }) {
-  const [cargando, setCargando] = useState<"participantes" | "ponencias" | null>(null);
+  const [cargando, setCargando] = useState<"participantes" | "ponencias" | "checkins" | null>(null);
   const [mensaje, setMensaje] = useState<{ tipo: "error" | "exito"; texto: string } | null>(null);
   
   const fileInputParticipantes = useRef<HTMLInputElement>(null);
   const fileInputPonencias = useRef<HTMLInputElement>(null);
+  const fileInputCheckins = useRef<HTMLInputElement>(null);
 
   // Estados para la gestión manual de duplicados
   const [modalDuplicados, setModalDuplicados] = useState(false);
@@ -294,6 +295,109 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
     }
   };
 
+  // NUEVA FUNCIÓN: PROCESAR CHECK-INS MASIVOS (Ingresos por Excel)
+  const procesarCheckinsMasivos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCargando("checkins");
+    setMensaje(null);
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+      const worksheet = workbook.worksheets[0];
+
+      let colCorreo = -1;
+      const headerRow = worksheet.getRow(1);
+      headerRow.eachCell((cell, colNumber) => {
+        const text = cell.text?.trim().toLowerCase() || "";
+        if (text.includes("correo") || text.includes("email") || text.includes("electrónico")) {
+          colCorreo = colNumber;
+        }
+      });
+
+      if (colCorreo === -1) {
+        throw new Error("El archivo no contiene la columna necesaria (CORREO ELECTRÓNICO).");
+      }
+
+      const correosExcel: string[] = [];
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+        const correo = row.getCell(colCorreo).text?.trim().toLowerCase();
+        if (correo) correosExcel.push(correo);
+      });
+
+      if (correosExcel.length === 0) {
+        throw new Error("No se encontraron correos válidos en el archivo.");
+      }
+
+      const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
+
+      // Obtener TODOS los checkins actuales para este módulo hoy (Ciclo Anti-bloqueo)
+      let allCheckins: any[] = [];
+      let cFrom = 0;
+      let cStep = 999;
+      let cFetchMore = true;
+
+      while (cFetchMore) {
+        const { data: checkinData, error: errCheck } = await supabase
+          .from("check_ins")
+          .select("correo_usuario")
+          .eq("dia_evento", todayStr)
+          .eq("modulo", moduloSeleccionado)
+          .range(cFrom, cFrom + cStep);
+          
+        if (errCheck) throw errCheck;
+
+        if (checkinData && checkinData.length > 0) {
+          allCheckins = [...allCheckins, ...checkinData];
+          cFrom += cStep + 1;
+          if (checkinData.length <= cStep) cFetchMore = false;
+        } else {
+          cFetchMore = false;
+        }
+      }
+
+      const setCheckinsExistentes = new Set(allCheckins.map(c => c.correo_usuario.toLowerCase()));
+
+      // Filtrar correos que AÚN NO tienen checkin para no generar duplicados (solo los nuevos)
+      const correosUnicos = [...new Set(correosExcel)];
+      const correosParaCheckin = correosUnicos.filter(c => !setCheckinsExistentes.has(c));
+
+      if (correosParaCheckin.length === 0) {
+        setMensaje({ tipo: "exito", texto: "Todos los correos del archivo ya tenían su ingreso registrado hoy." });
+        return;
+      }
+
+      const nuevosCheckins = correosParaCheckin.map(correo => ({
+        correo_usuario: correo,
+        dia_evento: todayStr,
+        estado: "ingresó",
+        modulo: moduloSeleccionado
+      }));
+
+      // Subir en lotes para evitar límites
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < nuevosCheckins.length; i += BATCH_SIZE) {
+        const lote = nuevosCheckins.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase
+          .from("check_ins")
+          .insert(lote);
+          
+        if (error) throw error;
+      }
+
+      setMensaje({ tipo: "exito", texto: `Se registraron ${nuevosCheckins.length} nuevos ingresos (Check-ins) masivos exitosamente.` });
+    } catch (error: any) {
+      setMensaje({ tipo: "error", texto: `Error al procesar ingresos: ${error.message}` });
+    } finally {
+      setCargando(null);
+      if (fileInputCheckins.current) fileInputCheckins.current.value = "";
+    }
+  };
+
   return (
     <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-6 relative">
       <div className="absolute top-4 right-6 z-20 bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold shadow-md">
@@ -308,6 +412,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+        
         {/* Card Participantes */}
         <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#c81474] transition-colors">
           <div className="bg-pink-100 p-4 rounded-full mb-4">
@@ -343,9 +448,45 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
           </button>
         </div>
 
+        {/* NUEVA CARD: Ingreso Masivo (Check-in) */}
+        <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-green-600 transition-colors">
+          <div className="bg-green-100 p-4 rounded-full mb-4">
+            <CheckCircle className="w-8 h-8 text-green-600" />
+          </div>
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Ingreso Masivo (Check-in)</h3>
+          
+          <p className="text-gray-500 text-xs mb-4">
+            Sube un Excel con los participantes que ya llegaron.<br/>
+            La columna necesaria es:<br/>
+            <strong className="text-gray-800">CORREO ELECTRÓNICO</strong>
+          </p>
+          
+          <input 
+            type="file" 
+            accept=".xlsx, .xls" 
+            className="hidden" 
+            ref={fileInputCheckins} 
+            onChange={procesarCheckinsMasivos}
+          />
+          <button 
+            onClick={() => fileInputCheckins.current?.click()} 
+            disabled={cargando !== null} 
+            className="w-full mt-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center space-x-2 disabled:opacity-70 transition-colors"
+          >
+            {cargando === "checkins" ? (
+              <span className="animate-pulse">Procesando...</span>
+            ) : (
+              <>
+                <UploadCloud className="w-5 h-5" />
+                <span>Subir Ingresos Masivos</span>
+              </>
+            )}
+          </button>
+        </div>
+
         {/* Card Ponencias (Solo visible si el módulo es Ponencias) */}
         {moduloSeleccionado === "Ponencias" && (
-          <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#311b42] transition-colors">
+          <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#311b42] transition-colors md:col-span-2 lg:col-span-1">
             <div className="bg-purple-100 p-4 rounded-full mb-4">
               <FileText className="w-8 h-8 text-[#311b42]" />
             </div>
