@@ -16,7 +16,6 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
     const offlineData = JSON.parse(localStorage.getItem("offline_checkins") || "[]");
     setPendientesSync(offlineData);
     
-    // Limpieza de seguridad al desmontar el componente
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
@@ -99,102 +98,62 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
 
   const mostrarResultadoTemporal = (res: any) => {
     setResultado(res);
-    
-    // Limpiamos cualquier temporizador anterior para evitar cruces
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    
-    // Auto-cierre a los 3.5 segundos si el usuario no presiona nada
     timeoutRef.current = setTimeout(() => {
       setResultado(null);
     }, 3500);
   };
 
-  // Función para forzar el escaneo inmediato saltándose la espera
   const forzarSiguienteEscaneo = () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setResultado(null);
     fileInputRef.current?.click();
   };
 
-  // ----------------------------------------------------------------------
-  // PRE-PROCESADOR DE IMAGEN (LA SOLUCIÓN DEFINITIVA PARA iPHONE)
-  // Redimensiona la foto antes de leerla para no saturar la memoria
-  // ----------------------------------------------------------------------
-  const comprimirYCorregirImagen = (file: File): Promise<File> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 800; // Resolución óptima para lectura de QRs
-        const MAX_HEIGHT = 800;
-        let width = img.width;
-        let height = img.height;
-
-        // Mantener proporciones al redimensionar
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        
-        if (!ctx) return reject(new Error("No se pudo crear contexto de imagen"));
-        
-        // Dibujar un fondo blanco por si la imagen tiene transparencias raras
-        ctx.fillStyle = "#FFFFFF";
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // Convertir de vuelta a archivo ligero
-        canvas.toBlob((blob) => {
-          if (!blob) return reject(new Error("Error al generar la imagen comprimida"));
-          const newFile = new File([blob], "qr-optimizado.jpg", {
-            type: "image/jpeg",
-          });
-          resolve(newFile);
-        }, "image/jpeg", 0.9);
-      };
-
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error("Error al cargar la imagen nativa"));
-      };
-
-      img.src = url;
-    });
-  };
-
   const procesarFotoNativa = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const fileOriginal = e.target.files[0];
+      const file = e.target.files[0];
       setResultado({ tipo: "cargando", mensaje: "Analizando fotografía..." });
       
       try {
-        // Ejecutamos la compresión mágica antes de intentar leer
-        const fileOptimizado = await comprimirYCorregirImagen(fileOriginal);
+        let textoDecodificado = null;
 
-        const html5QrCode = new Html5Qrcode("hidden-qr-reader");
-        const decodedText = await html5QrCode.scanFile(fileOptimizado, true);
-        await onScanSuccess(decodedText);
+        // MOTOR 1: Intentar con BarcodeDetector Nativo (Ultra rápido y resistente en iOS 17+)
+        if ('BarcodeDetector' in window) {
+          try {
+            // @ts-ignore
+            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+            const img = new Image();
+            img.src = URL.createObjectURL(file);
+            await img.decode(); // Esperar a que el navegador procese la imagen
+            const barcodes = await barcodeDetector.detect(img);
+            if (barcodes.length > 0) {
+              textoDecodificado = barcodes[0].rawValue;
+            }
+          } catch (err) {
+            console.warn("BarcodeDetector nativo falló, intentando motor de respaldo...", err);
+          }
+        }
+
+        // MOTOR 2: Fallback a Html5Qrcode si el Motor 1 no está disponible o falló
+        if (!textoDecodificado) {
+          const html5QrCode = new Html5Qrcode("hidden-qr-reader");
+          // EL SECRETO EN iOS: pasar 'false' como segundo parámetro para evitar que intente 
+          // dibujar fotos de 48MP en pantalla, previniendo el colapso silencioso de memoria.
+          textoDecodificado = await html5QrCode.scanFile(file, false);
+        }
+
+        if (textoDecodificado) {
+          await onScanSuccess(textoDecodificado);
+        } else {
+          throw new Error("No se detectó QR");
+        }
       } catch (err) {
         mostrarResultadoTemporal({ 
           tipo: "error", 
-          mensaje: "No se detectó ningún QR válido en la foto. Intenta enfocar mejor." 
+          mensaje: "Código no detectado. Si está borroso, aléjate un poco y usa el Zoom." 
         });
       }
-      // Limpiar el input para permitir tomar otra foto enseguida
       e.target.value = "";
     }
   };
@@ -240,7 +199,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
   return (
     <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-6 relative min-h-125 flex flex-col items-center justify-center">
       
-      {/* Contenedor Oculto necesario para procesar la imagen */}
+      {/* Contenedor Oculto */}
       <div id="hidden-qr-reader" style={{ display: "none" }}></div>
 
       <div className="absolute top-4 left-6 z-20 bg-[#311b42] text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-md">
@@ -266,7 +225,7 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
       {/* ÁREA CENTRAL PRINCIPAL */}
       <div className="w-full max-w-md flex flex-col items-center justify-center mt-12">
         
-        {/* Input con restricción de formato recomendada para iOS */}
+        {/* Restricción de formatos sugerida para forzar compatibilidad */}
         <input 
           type="file" 
           accept="image/jpeg, image/png" 
@@ -278,14 +237,21 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
 
         {!resultado ? (
           <div className="flex flex-col items-center w-full animate-in fade-in duration-300">
-            <div className="w-24 h-24 bg-pink-50 rounded-full flex items-center justify-center mb-6">
+            <div className="w-24 h-24 bg-pink-50 rounded-full flex items-center justify-center mb-4">
               <ScanLine className="w-12 h-12 text-[#c81474]" />
             </div>
             
             <h2 className="text-2xl font-extrabold text-gray-900 mb-2 text-center">Control de Acceso</h2>
-            <p className="text-gray-500 text-center mb-8 font-medium px-4">
+            <p className="text-gray-500 text-center mb-6 font-medium px-4">
               Toma una foto clara del código QR para registrar el ingreso al instante.
             </p>
+
+            {/* AVISO VISUAL PARA iPHONE */}
+            <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl mb-6 w-full text-center">
+              <p className="text-blue-800 text-xs font-bold">
+                🍏 Tip para iPhone: Si el QR se ve borroso al acercarte, aléjate un poco y usa el Zoom de tu cámara.
+              </p>
+            </div>
             
             <button 
               onClick={() => fileInputRef.current?.click()}
@@ -296,7 +262,6 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
             </button>
           </div>
         ) : (
-          /* PANTALLA DE RESULTADOS / CARGA */
           <div className="flex flex-col items-center w-full p-8 bg-gray-50 rounded-3xl border border-gray-100 animate-in zoom-in-95 duration-200 shadow-inner">
             {resultado.tipo === "exito" && <CheckCircle className="w-28 h-28 text-green-500 mb-6 drop-shadow-sm" />}
             {resultado.tipo === "error" && <XCircle className="w-28 h-28 text-red-500 mb-6 drop-shadow-sm" />}
@@ -309,7 +274,6 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
               {resultado.mensaje}
             </p>
             
-            {/* BOTÓN PARA SALTARSE LA ESPERA (Solo aparece cuando ya procesó) */}
             {resultado.tipo !== "cargando" && (
                <button 
                  onClick={forzarSiguienteEscaneo}
