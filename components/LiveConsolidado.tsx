@@ -41,7 +41,10 @@ export default function LiveConsolidado() {
     setLoading(true);
     try {
       const { data: ponenciasData } = await supabase.from('ponencias').select('*');
-      const { data: partData } = await supabase.from('base_datos_participantes').select('*').eq('modulo', 'Ponencias');
+      
+      // BLINDAJE: Usar .ilike para atrapar a los usuarios que están en múltiples módulos (Ej: "Stands, Ponencias")
+      const { data: partData } = await supabase.from('base_datos_participantes').select('*').ilike('modulo', '%Ponencias%');
+      
       const { data: evalData } = await supabase.from('evaluaciones').select('*');
 
       if (!ponenciasData || !evalData || !partData) return;
