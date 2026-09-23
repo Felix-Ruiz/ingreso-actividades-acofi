@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { RefreshCw, FileSpreadsheet, Layers, Search } from "lucide-react";
+import { RefreshCw, FileSpreadsheet, Layers, Search, X } from "lucide-react";
 
 interface Evaluacion {
   email: string;
@@ -53,13 +53,13 @@ export default function LiveConsolidado() {
         } else { pFetchMore = false; }
       }
 
-      // 2. CICLO ANTI-BLOQUEO PARA PARTICIPANTES (Acepta más de 1000)
+      // 2. CICLO ANTI-BLOQUEO PARA PARTICIPANTES
+      // SOLUCIÓN: Eliminamos el filtro por módulo para que encuentre a los moderadores sin importar dónde los subiste.
       let partData: any[] = [];
       let paFrom = 0; let paStep = 999; let paFetchMore = true;
       while (paFetchMore) {
         const { data, error } = await supabase.from('base_datos_participantes')
           .select('*')
-          .ilike('modulo', '%Ponencias%')
           .range(paFrom, paFrom + paStep);
         if (error) throw error;
         if (data && data.length > 0) {
@@ -69,7 +69,7 @@ export default function LiveConsolidado() {
         } else { paFetchMore = false; }
       }
 
-      // 3. CICLO ANTI-BLOQUEO PARA EVALUACIONES (Acepta más de 1000)
+      // 3. CICLO ANTI-BLOQUEO PARA EVALUACIONES
       let evalData: any[] = [];
       let eFrom = 0; let eStep = 999; let eFetchMore = true;
       while (eFetchMore) {
@@ -285,8 +285,17 @@ export default function LiveConsolidado() {
                 placeholder="Buscar por código de ponencia, nombre, moderador..." 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 bg-gray-50"
+                className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 bg-gray-50"
               />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm("")}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-[#c81474] transition-colors focus:outline-none"
+                  title="Limpiar búsqueda"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
             </div>
           </div>
 

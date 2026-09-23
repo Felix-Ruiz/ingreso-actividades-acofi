@@ -53,7 +53,6 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         }
       }
 
-      // FILTRO VISUAL ANTI-CLONES PARA ESTABILIZAR REACT Y EL BUSCADOR
       const mapUnicos = new Map();
       allParticipantes.forEach(p => {
         mapUnicos.set(p.correo.toLowerCase(), p);
@@ -267,8 +266,18 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
             value={terminoBusqueda} 
             onChange={(e) => setTerminoBusqueda(e.target.value)} 
             placeholder="Buscar por nombre, documento o correo..." 
-            className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-[#311b42] outline-none text-gray-900 bg-white placeholder-gray-500" 
+            className="w-full pl-12 pr-12 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-[#311b42] outline-none text-gray-900 bg-white placeholder-gray-500" 
           />
+          {/* Botón de limpiar búsqueda */}
+          {terminoBusqueda && (
+            <button
+              onClick={() => setTerminoBusqueda("")}
+              className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-[#c81474] transition-colors focus:outline-none"
+              title="Limpiar búsqueda"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
         <button 
           onClick={() => setMostrarModal(true)}
