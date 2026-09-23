@@ -46,27 +46,31 @@ export default function QRScanner({ moduloSeleccionado }: { moduloSeleccionado: 
     }
 
     try {
-      const { data: usuario, error: errUsuario } = await supabase
+      // BLINDAJE: Usamos .limit(1) en lugar de .single() para evitar pánico por duplicados antiguos
+      const { data: usuarioData, error: errUsuario } = await supabase
         .from("base_datos_participantes")
         .select("nombre, apellido")
         .eq("correo", correo)
         .ilike("modulo", `%${moduloSeleccionado}%`)
-        .single();
+        .limit(1);
 
-      if (!usuario || errUsuario) {
+      if (errUsuario || !usuarioData || usuarioData.length === 0) {
         mostrarResultadoTemporal({ tipo: "error", mensaje: `Correo no registrado en este módulo: ${correo}` });
         return;
       }
 
-      const { data: checkinPrevio } = await supabase
+      const usuario = usuarioData[0];
+
+      // BLINDAJE: Usamos .limit(1) también en los checkins para evitar el mismo error
+      const { data: checkinPrevioData } = await supabase
         .from("check_ins")
         .select("id")
         .eq("correo_usuario", correo)
         .eq("dia_evento", todayStr)
         .eq("modulo", moduloSeleccionado)
-        .single();
+        .limit(1);
 
-      if (checkinPrevio) {
+      if (checkinPrevioData && checkinPrevioData.length > 0) {
         mostrarResultadoTemporal({ 
           tipo: "error", 
           mensaje: `Ya ingresó a ${moduloSeleccionado} hoy.`, 
