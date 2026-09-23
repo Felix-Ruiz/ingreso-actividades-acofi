@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { RefreshCw, FileSpreadsheet, Layers, Search, X } from "lucide-react";
+import { RefreshCw, FileSpreadsheet, Layers, Search, X, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 
 interface Evaluacion {
   email: string;
@@ -19,6 +19,9 @@ export default function LiveConsolidado() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<string>("Consolidado");
   const [searchTerm, setSearchTerm] = useState("");
+  
+  // Nuevo estado para el orden de la Nota Final
+  const [sortOrder, setSortOrder] = useState<"default" | "desc" | "asc">("default");
 
   const [sheets, setSheets] = useState<{
     resultados: Evaluacion[];
@@ -53,7 +56,7 @@ export default function LiveConsolidado() {
         } else { pFetchMore = false; }
       }
 
-      // 2. CICLO ANTI-BLOQUEO PARA PARTICIPANTES (Traemos todos sin importar el módulo)
+      // 2. CICLO ANTI-BLOQUEO PARA PARTICIPANTES
       let partData: any[] = [];
       let paFrom = 0; let paStep = 999; let paFetchMore = true;
       while (paFetchMore) {
@@ -83,24 +86,21 @@ export default function LiveConsolidado() {
 
       if (!ponenciasData || !evalData || !partData) return;
 
-      // 4. MAPEO INTELIGENTE CON PRIORIDAD DE ROL (LA SOLUCIÓN A LOS CLONES)
+      // 4. MAPEO INTELIGENTE CON PRIORIDAD DE ROL
       const mapUsuarios: Record<string, any> = {};
       partData.forEach(p => {
         const correo = (p.correo || "").trim().toLowerCase();
         const rolActual = (p.rol || "Participante").trim();
 
         if (!mapUsuarios[correo]) {
-          // Si es la primera vez que vemos este correo, lo guardamos normal
           mapUsuarios[correo] = {
             nombre: (p.nombre || "").trim(),
             apellido: (p.apellido || "").trim(),
             rol: rolActual
           };
         } else {
-          // Si este correo YA EXISTE (es un clon), le damos PRIORIDAD ABSOLUTA al rol "Moderador"
           if (rolActual.toLowerCase() === "moderador") {
             mapUsuarios[correo].rol = "Moderador";
-            // Actualizamos también el nombre por si el excel del moderador estaba más completo
             mapUsuarios[correo].nombre = (p.nombre || "").trim();
             mapUsuarios[correo].apellido = (p.apellido || "").trim();
           }
@@ -190,10 +190,12 @@ export default function LiveConsolidado() {
         return { ...r, K, L, N, O, P, Q, R };
       });
 
+      // Orden por defecto inicial
       consolidadoRows.sort((a, b) => a.ponId.localeCompare(b.ponId));
 
       setSheets({ resultados, mods, parts, modNames, uniqueParticipants, consolidadoRows });
       setActiveTab("Consolidado");
+      setSortOrder("default"); // Reseteamos el orden al recalcular
 
     } catch (err) {
       console.error(err);
@@ -267,10 +269,31 @@ export default function LiveConsolidado() {
 
   const getConsolidadoFiltrado = () => {
     if (!sheets) return [];
-    return sheets.consolidadoRows.filter(r => 
+    
+    // Primero filtramos
+    let filtrados = sheets.consolidadoRows.filter(r => 
       r.ponId.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.modName.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    // Luego ordenamos basado en el estado
+    if (sortOrder === "desc") {
+      filtrados.sort((a, b) => b.R - a.R); // Mayor a menor
+    } else if (sortOrder === "asc") {
+      filtrados.sort((a, b) => a.R - b.R); // Menor a mayor
+    } else {
+      filtrados.sort((a, b) => a.ponId.localeCompare(b.ponId)); // Por defecto (código ponencia)
+    }
+
+    return filtrados;
+  };
+
+  const toggleSortOrder = () => {
+    setSortOrder(prev => {
+      if (prev === "default") return "desc";
+      if (prev === "desc") return "asc";
+      return "default";
+    });
   };
 
   return (
@@ -378,7 +401,18 @@ export default function LiveConsolidado() {
                       <th className="px-3 py-3 border-r border-gray-200 bg-[#311b42] text-white">Factor 1</th>
                       <th className="px-3 py-3 border-r border-gray-200 bg-[#311b42] text-white">Factor 2</th>
                       <th className="px-3 py-3 border-r border-gray-200 bg-[#311b42] text-white">Norm Asistentes</th>
-                      <th className="px-3 py-3 border-r border-gray-200 bg-[#1ba829] text-white font-extrabold text-sm">Nota Final</th>
+                      
+                      {/* BOTÓN INTERACTIVO PARA ORDENAR */}
+                      <th 
+                        className="px-3 py-3 border-r border-gray-200 bg-[#1ba829] text-white font-extrabold text-sm cursor-pointer hover:bg-green-700 transition-colors select-none group"
+                        onClick={toggleSortOrder}
+                        title="Haz clic para ordenar"
+                      >
+                        <div className="flex items-center space-x-1">
+                          <span>Nota Final</span>
+                          {sortOrder === "desc" ? <ArrowDown className="w-4 h-4" /> : sortOrder === "asc" ? <ArrowUp className="w-4 h-4" /> : <ArrowUpDown className="w-4 h-4 opacity-50 group-hover:opacity-100" />}
+                        </div>
+                      </th>
                       
                       {sheets.uniqueParticipants.map(name => (
                         <th key={name} className="hidden px-3 py-3 border-r border-gray-200 bg-gray-500 text-white font-normal">{name}</th>
