@@ -13,7 +13,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
   const fileInputPonencias = useRef<HTMLInputElement>(null);
   const fileInputCheckins = useRef<HTMLInputElement>(null);
 
-  // Estados para la gestión manual de duplicados
   const [modalDuplicados, setModalDuplicados] = useState(false);
   const [conflictos, setConflictos] = useState<Record<string, any[]>>({});
   const [seleccionados, setSeleccionados] = useState<Record<string, number>>({});
@@ -49,7 +48,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         throw new Error("El archivo no contiene las columnas necesarias (CORREO ELECTRÓNICO, NOMBRE, APELLIDOS).");
       }
 
-      // Agrupar filas por correo para detectar duplicados dentro del mismo Excel
       const mapParticipantes = new Map<string, any[]>();
 
       worksheet.eachRow((row, rowNumber) => {
@@ -91,20 +89,17 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
           unicos.push(filas[0]);
         } else {
           repetidos[correo] = filas;
-          // Por defecto, sugerimos quedarse con la última fila donde apareció el correo
           seleccionesIniciales[correo] = filas[filas.length - 1].fila;
         }
       });
 
       if (Object.keys(repetidos).length > 0) {
-        // Hay duplicados: Pausamos la carga y abrimos el Modal
         setListosParaSubir(unicos);
         setConflictos(repetidos);
         setSeleccionados(seleccionesIniciales);
         setModalDuplicados(true);
-        setCargando(null); // Detenemos el loader para que el usuario pueda decidir
+        setCargando(null); 
       } else {
-        // Todo está limpio, pasamos directo a subir
         if (unicos.length === 0) throw new Error("No se encontraron registros válidos de participantes.");
         await finalizarSubidaParticipantes(unicos);
       }
@@ -145,10 +140,9 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
 
   const finalizarSubidaParticipantes = async (datosPuros: any[]) => {
     try {
-      // 1. Limpiamos la propiedad 'fila' que era solo para la UI
       const datosFinales = datosPuros.map(({ fila, ...resto }) => resto);
 
-      // 2. CICLO ANTI-BLOQUEO: Traer TODOS los participantes previos de la base de datos (Todos los módulos)
+      // 1. TRAER ID, CORREO, MODULO Y ROL
       let todosExistentes: any[] = [];
       let pFrom = 0;
       let pStep = 999;
@@ -157,7 +151,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
       while (pFetchMore) {
         const { data: partData, error: errPart } = await supabase
           .from("base_datos_participantes")
-          .select("correo, modulo, rol")
+          .select("id, correo, modulo, rol") // ¡AQUÍ ESTÁ LA MAGIA, AHORA TRAEMOS EL ID!
           .range(pFrom, pFrom + pStep);
           
         if (errPart) throw errPart;
@@ -171,20 +165,43 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         }
       }
 
-      // Crear mapa ultra-rápido de los existentes en DB
-      const mapaExistentes = new Map(todosExistentes.map(e => [e.correo.toLowerCase(), e]));
+      // 2. AUTO-LIMPIEZA DE DUPLICADOS EN LA BASE DE DATOS
+      const idsABorrar: number[] = [];
+      const mapaExistentes = new Map();
 
-      // 3. BLINDAJE Y COMBINACIÓN: Mezclar módulos y roles de forma inteligente para no sobrescribir
+      todosExistentes.forEach(e => {
+        const correo = e.correo.toLowerCase();
+        if (mapaExistentes.has(correo)) {
+          // Si ya vimos este correo, este ID es un clon duplicado. Lo marcamos para borrar.
+          idsABorrar.push(e.id);
+        } else {
+          mapaExistentes.set(correo, e);
+        }
+      });
+
+      // Si hay basura duplicada, la borramos silenciosamente antes de continuar
+      if (idsABorrar.length > 0) {
+        const BATCH_DELETE = 200;
+        for (let i = 0; i < idsABorrar.length; i += BATCH_DELETE) {
+          await supabase
+            .from("base_datos_participantes")
+            .delete()
+            .in("id", idsABorrar.slice(i, i + BATCH_DELETE));
+        }
+        console.log(`Se limpiaron ${idsABorrar.length} clones duplicados.`);
+      }
+
+      // 3. BLINDAJE Y COMBINACIÓN (Añadiendo el ID para forzar el Update)
       const datosProtegidos = datosFinales.map(p => {
         const existente = mapaExistentes.get(p.correo.toLowerCase());
         let nuevoModulo = moduloSeleccionado;
         let nuevoRol = p.rol;
+        let idExistente = null;
 
         if (existente) {
-          // Si era moderador, nadie le quita ese rol
+          idExistente = existente.id; // Capturamos su ID real
           if (existente.rol === "Moderador") nuevoRol = "Moderador";
           
-          // Combinar módulos para que no se borren de otras listas (Ej: "Ponencias, Stands")
           if (existente.modulo) {
             const modulosPrevios = existente.modulo.split(",").map((m: string) => m.trim());
             if (!modulosPrevios.includes(moduloSeleccionado)) {
@@ -194,10 +211,15 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
           }
         }
 
-        return { ...p, rol: nuevoRol, modulo: nuevoModulo };
+        const objFinal: any = { ...p, rol: nuevoRol, modulo: nuevoModulo };
+        // Si ya existía, le inyectamos su ID original para que Supabase sepa que NO debe clonarlo
+        if (idExistente) {
+          objFinal.id = idExistente;
+        }
+        return objFinal;
       });
 
-      // 4. SUBIDA POR LOTES (Batch) para evitar límites y bloqueos de red en archivos grandes (>1000 filas)
+      // 4. SUBIDA POR LOTES
       const BATCH_SIZE = 500;
       for (let i = 0; i < datosProtegidos.length; i += BATCH_SIZE) {
         const lote = datosProtegidos.slice(i, i + BATCH_SIZE);
@@ -265,7 +287,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         }
 
         if (codigo && nombre && fechaStr) {
-          // Si una ponencia viene duplicada en el Excel, sobreescribe internamente sin molestar al usuario
           mapPonencias.set(codigo, { 
             codigo_ponencia: codigo, 
             nombre_ponencia: nombre, 
@@ -295,7 +316,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
     }
   };
 
-  // NUEVA FUNCIÓN: PROCESAR CHECK-INS MASIVOS (Ingresos por Excel)
   const procesarCheckinsMasivos = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -335,7 +355,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
 
       const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
 
-      // Obtener TODOS los checkins actuales para este módulo hoy (Ciclo Anti-bloqueo)
       let allCheckins: any[] = [];
       let cFrom = 0;
       let cStep = 999;
@@ -361,8 +380,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
       }
 
       const setCheckinsExistentes = new Set(allCheckins.map(c => c.correo_usuario.toLowerCase()));
-
-      // Filtrar correos que AÚN NO tienen checkin para no generar duplicados (solo los nuevos)
       const correosUnicos = [...new Set(correosExcel)];
       const correosParaCheckin = correosUnicos.filter(c => !setCheckinsExistentes.has(c));
 
@@ -378,7 +395,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         modulo: moduloSeleccionado
       }));
 
-      // Subir en lotes para evitar límites
       const BATCH_SIZE = 500;
       for (let i = 0; i < nuevosCheckins.length; i += BATCH_SIZE) {
         const lote = nuevosCheckins.slice(i, i + BATCH_SIZE);
@@ -413,7 +429,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         
-        {/* Card Participantes */}
         <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#c81474] transition-colors">
           <div className="bg-pink-100 p-4 rounded-full mb-4">
             <Users className="w-8 h-8 text-[#c81474]" />
@@ -448,7 +463,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
           </button>
         </div>
 
-        {/* NUEVA CARD: Ingreso Masivo (Check-in) */}
         <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-green-600 transition-colors">
           <div className="bg-green-100 p-4 rounded-full mb-4">
             <CheckCircle className="w-8 h-8 text-green-600" />
@@ -484,7 +498,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
           </button>
         </div>
 
-        {/* Card Ponencias (Solo visible si el módulo es Ponencias) */}
         {moduloSeleccionado === "Ponencias" && (
           <div className="border border-gray-200 rounded-xl p-6 bg-gray-50 flex flex-col items-center text-center hover:border-[#311b42] transition-colors md:col-span-2 lg:col-span-1">
             <div className="bg-purple-100 p-4 rounded-full mb-4">
@@ -522,7 +535,6 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         )}
       </div>
 
-      {/* MODAL PARA RESOLVER CONFLICTOS DUPLICADOS */}
       {modalDuplicados && (
         <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">

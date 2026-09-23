@@ -12,11 +12,9 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
   const [procesandoId, setProcesandoId] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<{ tipo: "error" | "exito"; texto: string } | null>(null);
 
-  // Paginación
   const [paginaActual, setPaginaActual] = useState(1);
   const ELEMENTOS_POR_PAGINA = 100;
 
-  // Formulario de Registro en Sitio
   const [mostrarModal, setMostrarModal] = useState(false);
   const [nuevoForm, setNuevoForm] = useState({
     nombre: "",
@@ -32,7 +30,6 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
   const cargarDatos = async () => {
     setCargando(true);
     try {
-      // 1. CICLO ANTI-BLOQUEO PARA PARTICIPANTES (Actualizado para búsqueda inteligente)
       let allParticipantes: any[] = [];
       let pFrom = 0;
       let pStep = 999;
@@ -42,7 +39,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         const { data: partData, error: errPart } = await supabase
           .from("base_datos_participantes")
           .select("*")
-          .ilike("modulo", `%${moduloSeleccionado}%`) // Búsqueda inteligente: encuentra "Ponencias" dentro de "Ponencias, Stands"
+          .ilike("modulo", `%${moduloSeleccionado}%`)
           .range(pFrom, pFrom + pStep);
           
         if (errPart) throw errPart;
@@ -56,7 +53,13 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         }
       }
 
-      // 2. CICLO ANTI-BLOQUEO PARA CHECK-INS
+      // 1. FILTRO VISUAL ANTI-CLONES PARA ESTABILIZAR REACT Y EL BUSCADOR
+      const mapUnicos = new Map();
+      allParticipantes.forEach(p => {
+        mapUnicos.set(p.correo.toLowerCase(), p);
+      });
+      const participantesDeduplicados = Array.from(mapUnicos.values());
+
       let allCheckins: any[] = [];
       let cFrom = 0;
       let cStep = 999;
@@ -81,8 +84,8 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         }
       }
 
-      setParticipantes(allParticipantes);
-      setCheckinsHoy(new Set(allCheckins.map(c => c.correo_usuario)));
+      setParticipantes(participantesDeduplicados); // Pasamos la lista limpia
+      setCheckinsHoy(new Set(allCheckins.map(c => c.correo_usuario.toLowerCase())));
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: error.message });
     } finally {
@@ -147,62 +150,66 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
     const correoLimpio = nuevoForm.correo.trim().toLowerCase();
 
     try {
-      // 1. Validar primero si ya existe para blindar módulos y no sobreescribir
-      const { data: existente } = await supabase
+      // Usamos limit(1) y traemos el ID para no clonar al inscribir manual
+      const { data: existentes } = await supabase
         .from("base_datos_participantes")
-        .select("modulo, rol")
+        .select("id, modulo, rol")
         .eq("correo", correoLimpio)
-        .single();
+        .limit(1);
+
+      const existente = existentes?.[0];
 
       let modulosFinal = moduloSeleccionado;
       let rolFinal = nuevoForm.rol;
 
       if (existente) {
-        if (existente.rol === "Moderador") rolFinal = "Moderador"; // Respeta a los moderadores
+        if (existente.rol === "Moderador") rolFinal = "Moderador";
         if (existente.modulo) {
           const arrModulos = existente.modulo.split(",").map((m: string) => m.trim());
           if (!arrModulos.includes(moduloSeleccionado)) {
             arrModulos.push(moduloSeleccionado);
           }
-          modulosFinal = arrModulos.join(", "); // Ej: "Ponencias, Stands"
+          modulosFinal = arrModulos.join(", "); 
         }
       }
 
-      // 2. Insertar o Actualizar en participantes de forma segura
-      const { error: errPart } = await supabase
-        .from("base_datos_participantes")
-        .upsert([{
-          correo: correoLimpio,
-          nombre: nuevoForm.nombre.trim(),
-          apellido: nuevoForm.apellido.trim(),
-          numero_documento: nuevoForm.numero_documento.trim() || null,
-          rol: rolFinal,
-          modulo: modulosFinal
-        }]);
-
-      if (errPart) throw errPart;
-
-      // 3. Dar ingreso automático (Check-in) para hoy
-      const { error: errCheck } = await supabase
-        .from("check_ins")
-        .insert([{ 
-          correo_usuario: correoLimpio, 
-          dia_evento: todayStr, 
-          estado: "ingresó", 
-          modulo: moduloSeleccionado 
-        }]);
-
-      if (errCheck) throw errCheck;
-
-      // 4. Actualizar estado local para que aparezca inmediatamente
-      setParticipantes(prev => [{
+      const payload: any = {
         correo: correoLimpio,
         nombre: nuevoForm.nombre.trim(),
         apellido: nuevoForm.apellido.trim(),
         numero_documento: nuevoForm.numero_documento.trim() || null,
         rol: rolFinal,
         modulo: modulosFinal
-      }, ...prev]);
+      };
+
+      if (existente && existente.id) {
+        payload.id = existente.id; // Pasamos el ID para forzar UPDATE
+      }
+
+      const { error: errPart } = await supabase
+        .from("base_datos_participantes")
+        .upsert([payload]);
+
+      if (errPart) throw errPart;
+
+      if (!checkinsHoy.has(correoLimpio)) {
+        const { error: errCheck } = await supabase
+          .from("check_ins")
+          .insert([{ 
+            correo_usuario: correoLimpio, 
+            dia_evento: todayStr, 
+            estado: "ingresó", 
+            modulo: moduloSeleccionado 
+          }]);
+
+        if (errCheck) throw errCheck;
+      }
+
+      // Evitamos duplicarlo visualmente al registrar
+      setParticipantes(prev => {
+        const filtrados = prev.filter(p => p.correo.toLowerCase() !== correoLimpio);
+        return [payload, ...filtrados];
+      });
 
       const newSet = new Set(checkinsHoy);
       newSet.add(correoLimpio);
@@ -211,7 +218,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
       setMensaje({ tipo: "exito", texto: `Participante registrado e ingresado con éxito.` });
       setMostrarModal(false);
       setNuevoForm({ nombre: "", apellido: "", correo: "", numero_documento: "", rol: "Participante" });
-      setTerminoBusqueda(correoLimpio); // Autofiltrar para mostrarlo
+      setTerminoBusqueda(correoLimpio); 
       
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: "Error al registrar: " + error.message });
@@ -220,20 +227,17 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
     }
   };
 
-  // Filtrado
   const todosFiltrados = participantes.filter(p => 
     terminoBusqueda === "" || 
     `${p.nombre} ${p.apellido} ${p.correo} ${p.numero_documento}`.toLowerCase().includes(terminoBusqueda.toLowerCase())
   );
 
-  // Paginación
   const totalPaginas = Math.ceil(todosFiltrados.length / ELEMENTOS_POR_PAGINA);
   const participantesPaginados = todosFiltrados.slice(
     (paginaActual - 1) * ELEMENTOS_POR_PAGINA, 
     paginaActual * ELEMENTOS_POR_PAGINA
   );
 
-  // Cálculos de Estadísticas
   const totalInscritos = participantes.length;
   const totalIngresados = checkinsHoy.size;
   const totalFaltantes = totalInscritos > 0 ? (totalInscritos - totalIngresados) : 0;
@@ -244,7 +248,6 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         Módulo: {moduloSeleccionado}
       </div>
 
-      {/* PANEL DE ESTADÍSTICAS */}
       <div className="grid grid-cols-3 gap-4 mt-8 mb-6">
         <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex flex-col items-center justify-center">
           <p className="text-blue-600 text-[10px] sm:text-xs font-bold uppercase text-center">Total Inscritos</p>
@@ -260,7 +263,6 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         </div>
       </div>
 
-      {/* BARRA DE BÚSQUEDA Y BOTÓN NUEVO */}
       <div className="flex flex-col md:flex-row gap-2 mb-6">
         <div className="relative grow">
           <div className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400">
@@ -290,7 +292,6 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         </div>
       )}
 
-      {/* LISTA DE PARTICIPANTES */}
       {cargando ? (
         <div className="p-8 text-center text-gray-500 font-bold animate-pulse">
           Cargando lista y calculando estadísticas...
@@ -298,20 +299,16 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
       ) : (
         <div className="space-y-3">
           {participantesPaginados.map((p) => {
-            const isCheckedIn = checkinsHoy.has(p.correo);
+            const isCheckedIn = checkinsHoy.has(p.correo.toLowerCase());
             return (
               <div 
                 key={p.correo} 
-                // CORRECCIÓN UI: Añadido gap-4 para separar el texto del botón
                 className={`border rounded-xl p-4 flex justify-between items-center gap-4 transition-colors ${isCheckedIn ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}
               >
-                {/* CORRECCIÓN UI: Añadido flex-1 min-w-0 para que no empuje el botón */}
                 <div className="flex-1 min-w-0">
-                  {/* CORRECCIÓN UI: truncate para nombres largos */}
                   <h3 className="text-lg font-bold text-gray-900 truncate">
                     {p.nombre} {p.apellido}
                   </h3>
-                  {/* CORRECCIÓN UI: break-all para correos largos */}
                   <p className="text-gray-600 text-sm break-all">
                     {p.correo} {p.numero_documento ? `| Doc: ${p.numero_documento}` : ""}
                   </p>
@@ -320,7 +317,6 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
                   </span>
                 </div>
                 
-                {/* Toggle UI */}
                 <button 
                   onClick={() => toggleCheckin(p.correo, isCheckedIn)} 
                   disabled={procesandoId === p.correo}
@@ -342,7 +338,6 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
             <p className="text-center text-gray-500 py-8 font-medium">No se encontraron resultados.</p>
           )}
           
-          {/* CONTROLES DE PAGINACIÓN */}
           {totalPaginas > 1 && (
             <div className="flex items-center justify-between border-t border-gray-100 pt-6 mt-4">
               <span className="text-sm text-gray-600 font-medium">
@@ -369,7 +364,6 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         </div>
       )}
 
-      {/* MODAL NUEVO PARTICIPANTE */}
       {mostrarModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
