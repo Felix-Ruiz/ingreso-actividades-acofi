@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Activity, Clock, AlertCircle, Trash2, Edit2, Save, X, CheckCircle, XCircle } from "lucide-react";
+import { Activity, Clock, AlertCircle, Trash2, Edit2, Save, X, CheckCircle, XCircle, Search } from "lucide-react";
 
 export default function RealTimeDashboard() {
   const [evaluaciones, setEvaluaciones] = useState<any[]>([]);
   const [estadisticas, setEstadisticas] = useState({ total: 0 });
   const [error, setError] = useState<string | null>(null);
   
+  // Estado para la búsqueda
+  const [searchTerm, setSearchTerm] = useState("");
+
   // Estados para Edición y Eliminación
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editNota, setEditNota] = useState<string>("");
@@ -27,13 +30,30 @@ export default function RealTimeDashboard() {
     try {
       setError(null);
       
-      const { data: rawEvData, error: evError } = await supabase
-        .from("evaluaciones")
-        .select("*")
-        .limit(2000); 
-      
-      if (evError) throw evError;
-      if (!rawEvData || rawEvData.length === 0) {
+      // 1. CICLO ANTI-BLOQUEO PARA EVALUACIONES (Traer TODAS)
+      let rawEvData: any[] = [];
+      let eFrom = 0;
+      let eStep = 999;
+      let eFetchMore = true;
+
+      while (eFetchMore) {
+        const { data: evBatch, error: evError } = await supabase
+          .from("evaluaciones")
+          .select("*")
+          .range(eFrom, eFrom + eStep);
+        
+        if (evError) throw evError;
+        
+        if (evBatch && evBatch.length > 0) {
+          rawEvData = [...rawEvData, ...evBatch];
+          eFrom += eStep + 1;
+          if (evBatch.length <= eStep) eFetchMore = false;
+        } else {
+          eFetchMore = false;
+        }
+      }
+
+      if (rawEvData.length === 0) {
         setEvaluaciones([]);
         setEstadisticas({ total: 0 });
         return;
@@ -42,29 +62,50 @@ export default function RealTimeDashboard() {
       const evDataSorted = rawEvData.sort((a, b) => {
         const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
         const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return dateB - dateA;
-      }).slice(0, 50);
+        return dateB - dateA; // Orden descendente (más recientes primero)
+      });
 
-      const correos = evDataSorted.map(e => e.correo_usuario);
-      
-      const { data: partData, error: partError } = await supabase
-        .from("base_datos_participantes")
-        .select("correo, nombre, apellido, rol")
-        .in("correo", correos)
-        .eq("modulo", "Ponencias");
+      // 2. CICLO ANTI-BLOQUEO PARA PARTICIPANTES (Traer todos los relevantes para mapear nombres y roles)
+      let partData: any[] = [];
+      let pFrom = 0;
+      let pStep = 999;
+      let pFetchMore = true;
+
+      while (pFetchMore) {
+        const { data: pBatch, error: partError } = await supabase
+          .from("base_datos_participantes")
+          .select("correo, nombre, apellido, rol")
+          .range(pFrom, pFrom + pStep);
+          
+        if (partError) throw partError;
         
-      if (partError) throw partError;
-
-      const mapParticipantes: Record<string, any> = {};
-      if (partData) {
-        partData.forEach(p => {
-          mapParticipantes[p.correo] = p;
-        });
+        if (pBatch && pBatch.length > 0) {
+          partData = [...partData, ...pBatch];
+          pFrom += pStep + 1;
+          if (pBatch.length <= pStep) pFetchMore = false;
+        } else {
+          pFetchMore = false;
+        }
       }
+
+      // Mapeo inteligente con prioridad de rol Moderador
+      const mapParticipantes: Record<string, any> = {};
+      partData.forEach(p => {
+        const correo = (p.correo || "").trim().toLowerCase();
+        const rolActual = (p.rol || "Participante").trim();
+
+        if (!mapParticipantes[correo]) {
+          mapParticipantes[correo] = p;
+        } else {
+          if (rolActual.toLowerCase() === "moderador") {
+             mapParticipantes[correo] = p;
+          }
+        }
+      });
 
       const dataUnida = evDataSorted.map(ev => ({
         ...ev,
-        participante: mapParticipantes[ev.correo_usuario] || { nombre: "Desconocido", apellido: "", rol: "Participante" }
+        participante: mapParticipantes[(ev.correo_usuario || "").toLowerCase()] || { nombre: "Desconocido", apellido: "", rol: "Participante" }
       }));
 
       setEvaluaciones(dataUnida);
@@ -143,6 +184,16 @@ export default function RealTimeDashboard() {
     }
   };
 
+  // Filtrado de evaluaciones
+  const evaluacionesFiltradas = evaluaciones.filter(ev => {
+    if (!searchTerm) return true;
+    const searchLower = searchTerm.toLowerCase();
+    const ponenciaMatch = ev.codigo_ponencia?.toLowerCase().includes(searchLower);
+    const nombreMatch = `${ev.participante?.nombre} ${ev.participante?.apellido}`.toLowerCase().includes(searchLower);
+    const rolMatch = ev.participante?.rol?.toLowerCase().includes(searchLower);
+    return ponenciaMatch || nombreMatch || rolMatch;
+  });
+
   return (
     <div className="w-full space-y-6 relative">
       
@@ -201,11 +252,32 @@ export default function RealTimeDashboard() {
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-4 bg-gray-50 border-b border-gray-200 flex items-center space-x-2">
-          <Clock className="w-5 h-5 text-gray-500" />
-          <h3 className="font-bold text-gray-900">Últimas 50 Evaluaciones (En Vivo)</h3>
+        <div className="p-4 bg-gray-50 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center space-x-2">
+            <Clock className="w-5 h-5 text-gray-500" />
+            <h3 className="font-bold text-gray-900">Historial de Evaluaciones (En Vivo)</h3>
+          </div>
+          <div className="relative w-full sm:w-72 md:w-96">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input 
+              type="text" 
+              placeholder="Buscar evaluación..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-9 py-2 text-sm border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 bg-white"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm("")}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-[#c81474] transition-colors focus:outline-none"
+                title="Limpiar búsqueda"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
-        <div className="overflow-x-auto max-h-100 overflow-y-auto">
+        <div className="overflow-x-auto max-h-150 overflow-y-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-white text-gray-900 font-extrabold sticky top-0 border-b border-gray-200 shadow-sm z-10">
               <tr>
@@ -218,7 +290,7 @@ export default function RealTimeDashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {evaluaciones.map((ev, idx) => (
+              {evaluacionesFiltradas.map((ev, idx) => (
                 <tr key={idx} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 font-bold text-[#c81474]">{ev.codigo_ponencia}</td>
                   <td className="px-4 py-3 font-medium text-gray-900">
@@ -293,10 +365,10 @@ export default function RealTimeDashboard() {
                   </td>
                 </tr>
               ))}
-              {evaluaciones.length === 0 && (
+              {evaluacionesFiltradas.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-gray-500 font-medium">
-                    Aún no hay evaluaciones registradas en el sistema.
+                    {evaluaciones.length === 0 ? "Aún no hay evaluaciones registradas en el sistema." : "No se encontraron resultados para tu búsqueda."}
                   </td>
                 </tr>
               )}
