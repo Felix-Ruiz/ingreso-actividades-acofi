@@ -40,12 +40,47 @@ export default function LiveConsolidado() {
   const calcularConsolidado = async () => {
     setLoading(true);
     try {
-      const { data: ponenciasData } = await supabase.from('ponencias').select('*');
-      
-      // BLINDAJE: Usar .ilike para atrapar a los usuarios que están en múltiples módulos (Ej: "Stands, Ponencias")
-      const { data: partData } = await supabase.from('base_datos_participantes').select('*').ilike('modulo', '%Ponencias%');
-      
-      const { data: evalData } = await supabase.from('evaluaciones').select('*');
+      // 1. CICLO ANTI-BLOQUEO PARA PONENCIAS
+      let ponenciasData: any[] = [];
+      let pFrom = 0; let pStep = 999; let pFetchMore = true;
+      while (pFetchMore) {
+        const { data, error } = await supabase.from('ponencias').select('*').range(pFrom, pFrom + pStep);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          ponenciasData = [...ponenciasData, ...data];
+          pFrom += pStep + 1;
+          if (data.length <= pStep) pFetchMore = false;
+        } else { pFetchMore = false; }
+      }
+
+      // 2. CICLO ANTI-BLOQUEO PARA PARTICIPANTES (Acepta más de 1000)
+      let partData: any[] = [];
+      let paFrom = 0; let paStep = 999; let paFetchMore = true;
+      while (paFetchMore) {
+        const { data, error } = await supabase.from('base_datos_participantes')
+          .select('*')
+          .ilike('modulo', '%Ponencias%')
+          .range(paFrom, paFrom + paStep);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          partData = [...partData, ...data];
+          paFrom += paStep + 1;
+          if (data.length <= paStep) paFetchMore = false;
+        } else { paFetchMore = false; }
+      }
+
+      // 3. CICLO ANTI-BLOQUEO PARA EVALUACIONES (Acepta más de 1000)
+      let evalData: any[] = [];
+      let eFrom = 0; let eStep = 999; let eFetchMore = true;
+      while (eFetchMore) {
+        const { data, error } = await supabase.from('evaluaciones').select('*').range(eFrom, eFrom + eStep);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          evalData = [...evalData, ...data];
+          eFrom += eStep + 1;
+          if (data.length <= eStep) eFetchMore = false;
+        } else { eFetchMore = false; }
+      }
 
       if (!ponenciasData || !evalData || !partData) return;
 
