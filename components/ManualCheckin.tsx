@@ -53,7 +53,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         }
       }
 
-      // 1. FILTRO VISUAL ANTI-CLONES PARA ESTABILIZAR REACT Y EL BUSCADOR
+      // FILTRO VISUAL ANTI-CLONES PARA ESTABILIZAR REACT Y EL BUSCADOR
       const mapUnicos = new Map();
       allParticipantes.forEach(p => {
         mapUnicos.set(p.correo.toLowerCase(), p);
@@ -84,7 +84,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         }
       }
 
-      setParticipantes(participantesDeduplicados); // Pasamos la lista limpia
+      setParticipantes(participantesDeduplicados); 
       setCheckinsHoy(new Set(allCheckins.map(c => c.correo_usuario.toLowerCase())));
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: error.message });
@@ -150,10 +150,9 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
     const correoLimpio = nuevoForm.correo.trim().toLowerCase();
 
     try {
-      // Usamos limit(1) y traemos el ID para no clonar al inscribir manual
       const { data: existentes } = await supabase
         .from("base_datos_participantes")
-        .select("id, modulo, rol")
+        .select("modulo, rol")
         .eq("correo", correoLimpio)
         .limit(1);
 
@@ -173,7 +172,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         }
       }
 
-      const payload: any = {
+      const payload = {
         correo: correoLimpio,
         nombre: nuevoForm.nombre.trim(),
         apellido: nuevoForm.apellido.trim(),
@@ -181,10 +180,6 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         rol: rolFinal,
         modulo: modulosFinal
       };
-
-      if (existente && existente.id) {
-        payload.id = existente.id; // Pasamos el ID para forzar UPDATE
-      }
 
       const { error: errPart } = await supabase
         .from("base_datos_participantes")
@@ -205,7 +200,6 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         if (errCheck) throw errCheck;
       }
 
-      // Evitamos duplicarlo visualmente al registrar
       setParticipantes(prev => {
         const filtrados = prev.filter(p => p.correo.toLowerCase() !== correoLimpio);
         return [payload, ...filtrados];

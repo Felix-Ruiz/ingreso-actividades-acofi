@@ -142,7 +142,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
     try {
       const datosFinales = datosPuros.map(({ fila, ...resto }) => resto);
 
-      // 1. TRAER ID, CORREO, MODULO Y ROL
+      // Traer todos los participantes existentes sin buscar columna ID
       let todosExistentes: any[] = [];
       let pFrom = 0;
       let pStep = 999;
@@ -151,7 +151,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
       while (pFetchMore) {
         const { data: partData, error: errPart } = await supabase
           .from("base_datos_participantes")
-          .select("id, correo, modulo, rol") // ¡AQUÍ ESTÁ LA MAGIA, AHORA TRAEMOS EL ID!
+          .select("correo, modulo, rol") 
           .range(pFrom, pFrom + pStep);
           
         if (errPart) throw errPart;
@@ -165,41 +165,15 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         }
       }
 
-      // 2. AUTO-LIMPIEZA DE DUPLICADOS EN LA BASE DE DATOS
-      const idsABorrar: number[] = [];
-      const mapaExistentes = new Map();
+      const mapaExistentes = new Map(todosExistentes.map(e => [e.correo.toLowerCase(), e]));
 
-      todosExistentes.forEach(e => {
-        const correo = e.correo.toLowerCase();
-        if (mapaExistentes.has(correo)) {
-          // Si ya vimos este correo, este ID es un clon duplicado. Lo marcamos para borrar.
-          idsABorrar.push(e.id);
-        } else {
-          mapaExistentes.set(correo, e);
-        }
-      });
-
-      // Si hay basura duplicada, la borramos silenciosamente antes de continuar
-      if (idsABorrar.length > 0) {
-        const BATCH_DELETE = 200;
-        for (let i = 0; i < idsABorrar.length; i += BATCH_DELETE) {
-          await supabase
-            .from("base_datos_participantes")
-            .delete()
-            .in("id", idsABorrar.slice(i, i + BATCH_DELETE));
-        }
-        console.log(`Se limpiaron ${idsABorrar.length} clones duplicados.`);
-      }
-
-      // 3. BLINDAJE Y COMBINACIÓN (Añadiendo el ID para forzar el Update)
+      // Blindaje de módulos
       const datosProtegidos = datosFinales.map(p => {
         const existente = mapaExistentes.get(p.correo.toLowerCase());
         let nuevoModulo = moduloSeleccionado;
         let nuevoRol = p.rol;
-        let idExistente = null;
 
         if (existente) {
-          idExistente = existente.id; // Capturamos su ID real
           if (existente.rol === "Moderador") nuevoRol = "Moderador";
           
           if (existente.modulo) {
@@ -211,15 +185,10 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
           }
         }
 
-        const objFinal: any = { ...p, rol: nuevoRol, modulo: nuevoModulo };
-        // Si ya existía, le inyectamos su ID original para que Supabase sepa que NO debe clonarlo
-        if (idExistente) {
-          objFinal.id = idExistente;
-        }
-        return objFinal;
+        return { ...p, rol: nuevoRol, modulo: nuevoModulo };
       });
 
-      // 4. SUBIDA POR LOTES
+      // Subida por lotes
       const BATCH_SIZE = 500;
       for (let i = 0; i < datosProtegidos.length; i += BATCH_SIZE) {
         const lote = datosProtegidos.slice(i, i + BATCH_SIZE);
@@ -230,7 +199,7 @@ export default function DataUploader({ moduloSeleccionado }: { moduloSeleccionad
         if (error) throw error;
       }
 
-      setMensaje({ tipo: "exito", texto: `Se cargaron y blindaron ${datosProtegidos.length} participantes únicos exitosamente en el módulo: ${moduloSeleccionado}.` });
+      setMensaje({ tipo: "exito", texto: `Se cargaron y blindaron ${datosProtegidos.length} participantes exitosamente en el módulo: ${moduloSeleccionado}.` });
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: `Error al subir a base de datos: ${error.message}` });
     } finally {
