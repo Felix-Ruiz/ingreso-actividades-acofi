@@ -53,8 +53,7 @@ export default function LiveConsolidado() {
         } else { pFetchMore = false; }
       }
 
-      // 2. CICLO ANTI-BLOQUEO PARA PARTICIPANTES
-      // SOLUCIÓN: Eliminamos el filtro por módulo para que encuentre a los moderadores sin importar dónde los subiste.
+      // 2. CICLO ANTI-BLOQUEO PARA PARTICIPANTES (Traemos todos sin importar el módulo)
       let partData: any[] = [];
       let paFrom = 0; let paStep = 999; let paFetchMore = true;
       while (paFetchMore) {
@@ -84,13 +83,28 @@ export default function LiveConsolidado() {
 
       if (!ponenciasData || !evalData || !partData) return;
 
+      // 4. MAPEO INTELIGENTE CON PRIORIDAD DE ROL (LA SOLUCIÓN A LOS CLONES)
       const mapUsuarios: Record<string, any> = {};
       partData.forEach(p => {
-        mapUsuarios[(p.correo || "").trim().toLowerCase()] = {
-          nombre: (p.nombre || "").trim(),
-          apellido: (p.apellido || "").trim(),
-          rol: (p.rol || "Participante").trim()
-        };
+        const correo = (p.correo || "").trim().toLowerCase();
+        const rolActual = (p.rol || "Participante").trim();
+
+        if (!mapUsuarios[correo]) {
+          // Si es la primera vez que vemos este correo, lo guardamos normal
+          mapUsuarios[correo] = {
+            nombre: (p.nombre || "").trim(),
+            apellido: (p.apellido || "").trim(),
+            rol: rolActual
+          };
+        } else {
+          // Si este correo YA EXISTE (es un clon), le damos PRIORIDAD ABSOLUTA al rol "Moderador"
+          if (rolActual.toLowerCase() === "moderador") {
+            mapUsuarios[correo].rol = "Moderador";
+            // Actualizamos también el nombre por si el excel del moderador estaba más completo
+            mapUsuarios[correo].nombre = (p.nombre || "").trim();
+            mapUsuarios[correo].apellido = (p.apellido || "").trim();
+          }
+        }
       });
 
       const resultados: Evaluacion[] = evalData.map(ev => {
