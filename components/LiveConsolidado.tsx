@@ -20,7 +20,6 @@ export default function LiveConsolidado() {
   const [activeTab, setActiveTab] = useState<string>("Consolidado");
   const [searchTerm, setSearchTerm] = useState("");
   
-  // Nuevo estado para el orden de la Nota Final
   const [sortOrder, setSortOrder] = useState<"default" | "desc" | "asc">("default");
 
   const [sheets, setSheets] = useState<{
@@ -43,39 +42,15 @@ export default function LiveConsolidado() {
   const calcularConsolidado = async () => {
     setLoading(true);
     try {
-      // 1. CICLO ANTI-BLOQUEO PARA PONENCIAS
-      let ponenciasData: any[] = [];
-      let pFrom = 0; let pStep = 999; let pFetchMore = true;
-      while (pFetchMore) {
-        const { data, error } = await supabase.from('ponencias').select('*').range(pFrom, pFrom + pStep);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          ponenciasData = [...ponenciasData, ...data];
-          pFrom += pStep + 1;
-          if (data.length <= pStep) pFetchMore = false;
-        } else { pFetchMore = false; }
-      }
-
-      // 2. CICLO ANTI-BLOQUEO PARA PARTICIPANTES
-      let partData: any[] = [];
-      let paFrom = 0; let paStep = 999; let paFetchMore = true;
-      while (paFetchMore) {
-        const { data, error } = await supabase.from('base_datos_participantes')
-          .select('*')
-          .range(paFrom, paFrom + paStep);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          partData = [...partData, ...data];
-          paFrom += paStep + 1;
-          if (data.length <= paStep) paFetchMore = false;
-        } else { paFetchMore = false; }
-      }
-
-      // 3. CICLO ANTI-BLOQUEO PARA EVALUACIONES
+      // 1. EVALUACIONES (Las traemos primero para saber quién evaluó)
       let evalData: any[] = [];
       let eFrom = 0; let eStep = 999; let eFetchMore = true;
       while (eFetchMore) {
-        const { data, error } = await supabase.from('evaluaciones').select('*').range(eFrom, eFrom + eStep);
+        const { data, error } = await supabase
+          .from('evaluaciones')
+          .select('*')
+          .order('created_at')
+          .range(eFrom, eFrom + eStep);
         if (error) throw error;
         if (data && data.length > 0) {
           evalData = [...evalData, ...data];
@@ -84,40 +59,80 @@ export default function LiveConsolidado() {
         } else { eFetchMore = false; }
       }
 
+      // 2. PONENCIAS
+      let ponenciasData: any[] = [];
+      let pFrom = 0; let pStep = 999; let pFetchMore = true;
+      while (pFetchMore) {
+        const { data, error } = await supabase
+          .from('ponencias')
+          .select('*')
+          .order('codigo_ponencia')
+          .range(pFrom, pFrom + pStep);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          ponenciasData = [...ponenciasData, ...data];
+          pFrom += pStep + 1;
+          if (data.length <= pStep) pFetchMore = false;
+        } else { pFetchMore = false; }
+      }
+
+      // 3. PARTICIPANTES (BÚSQUEDA SNIPER: Solo los que evaluaron, sin paginación riesgosa)
+      // Extraemos correos únicos de las evaluaciones
+      const correosEvaluadores = Array.from(
+        new Set(evalData.map(e => String(e.correo_usuario || "").trim().toLowerCase()))
+      ).filter(Boolean);
+
+      let partData: any[] = [];
+      const chunkSize = 200; // Supabase soporta hasta cientos de items en un ".in()"
+      
+      for (let i = 0; i < correosEvaluadores.length; i += chunkSize) {
+        const chunk = correosEvaluadores.slice(i, i + chunkSize);
+        const { data, error } = await supabase
+          .from('base_datos_participantes')
+          .select('correo, nombre, apellido, rol')
+          .in('correo', chunk);
+          
+        if (error) throw error;
+        if (data) {
+          partData = [...partData, ...data];
+        }
+      }
+
       if (!ponenciasData || !evalData || !partData) return;
 
-      // 4. MAPEO INTELIGENTE CON PRIORIDAD DE ROL
+      // 4. MAPEO INTELIGENTE (Soluciona los clones de Rol)
       const mapUsuarios: Record<string, any> = {};
       partData.forEach(p => {
-        const correo = (p.correo || "").trim().toLowerCase();
-        const rolActual = (p.rol || "Participante").trim();
+        const correo = String(p.correo || "").trim().toLowerCase();
+        const rolActual = String(p.rol || "Participante").trim();
 
         if (!mapUsuarios[correo]) {
           mapUsuarios[correo] = {
-            nombre: (p.nombre || "").trim(),
-            apellido: (p.apellido || "").trim(),
+            nombre: String(p.nombre || "").trim(),
+            apellido: String(p.apellido || "").trim(),
             rol: rolActual
           };
         } else {
+          // Si el clon es moderador, tiene prioridad absoluta
           if (rolActual.toLowerCase() === "moderador") {
             mapUsuarios[correo].rol = "Moderador";
-            mapUsuarios[correo].nombre = (p.nombre || "").trim();
-            mapUsuarios[correo].apellido = (p.apellido || "").trim();
+            mapUsuarios[correo].nombre = String(p.nombre || "").trim();
+            mapUsuarios[correo].apellido = String(p.apellido || "").trim();
           }
         }
       });
 
       const resultados: Evaluacion[] = evalData.map(ev => {
-        const u = (ev.correo_usuario || "").trim().toLowerCase();
+        const u = String(ev.correo_usuario || "").trim().toLowerCase();
         const pData = mapUsuarios[u] || { nombre: "Sin", apellido: "Registro", rol: "Participante" };
         
-        let rolLimpio = pData.rol.toLowerCase();
+        let rolLimpio = String(pData.rol || "").trim().toLowerCase();
         let tipoEvaluador = "Participante";
         if (rolLimpio === "moderador") tipoEvaluador = "Moderador";
 
         return {
           email: u,
-          ponencia: (ev.codigo_ponencia || "").trim(),
+          ponencia: String(ev.codigo_ponencia || "").trim(),
           nota: Number(ev.calificacion) || 0,
           fecha: ev.created_at ? new Date(ev.created_at).toLocaleString('es-CO') : new Date().toLocaleString('es-CO'),
           nombre: pData.nombre,
@@ -137,11 +152,11 @@ export default function LiveConsolidado() {
       const promGralMod = average(modScoresGral);
 
       const rowsTemp = ponenciasData.map(pon => {
-        const ponId = (pon.codigo_ponencia || "").trim();
+        const ponId = String(pon.codigo_ponencia || "").trim();
         const ponCompare = ponId.toLowerCase();
 
-        const modVote = mods.find(m => m.ponencia.toLowerCase() === ponCompare);
-        const pVotes = parts.filter(p => p.ponencia.toLowerCase() === ponCompare);
+        const modVote = mods.find(m => String(m.ponencia).toLowerCase() === ponCompare);
+        const pVotes = parts.filter(p => String(p.ponencia).toLowerCase() === ponCompare);
 
         let C = modVote ? modVote.nota : 0;
         let modIndScores = modVote ? mods.filter(m => m.nombreCompleto === modVote.nombreCompleto).map(v => v.nota) : [];
@@ -190,12 +205,11 @@ export default function LiveConsolidado() {
         return { ...r, K, L, N, O, P, Q, R };
       });
 
-      // Orden por defecto inicial
       consolidadoRows.sort((a, b) => a.ponId.localeCompare(b.ponId));
 
       setSheets({ resultados, mods, parts, modNames, uniqueParticipants, consolidadoRows });
       setActiveTab("Consolidado");
-      setSortOrder("default"); // Reseteamos el orden al recalcular
+      setSortOrder("default");
 
     } catch (err) {
       console.error(err);
@@ -270,19 +284,17 @@ export default function LiveConsolidado() {
   const getConsolidadoFiltrado = () => {
     if (!sheets) return [];
     
-    // Primero filtramos
     let filtrados = sheets.consolidadoRows.filter(r => 
       r.ponId.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.modName.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    // Luego ordenamos basado en el estado
     if (sortOrder === "desc") {
-      filtrados.sort((a, b) => b.R - a.R); // Mayor a menor
+      filtrados.sort((a, b) => b.R - a.R); 
     } else if (sortOrder === "asc") {
-      filtrados.sort((a, b) => a.R - b.R); // Menor a mayor
+      filtrados.sort((a, b) => a.R - b.R); 
     } else {
-      filtrados.sort((a, b) => a.ponId.localeCompare(b.ponId)); // Por defecto (código ponencia)
+      filtrados.sort((a, b) => a.ponId.localeCompare(b.ponId)); 
     }
 
     return filtrados;
