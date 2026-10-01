@@ -30,6 +30,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
   const cargarDatos = async () => {
     setCargando(true);
     try {
+      // 1. DESCARGA BLINDADA DE PARTICIPANTES (Con .order para evitar el bug de los 179)
       let allParticipantes: any[] = [];
       let pFrom = 0;
       let pStep = 999;
@@ -40,6 +41,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
           .from("base_datos_participantes")
           .select("*")
           .ilike("modulo", `%${moduloSeleccionado}%`)
+          .order("correo") // ¡LA CURA PARA LA PAGINACIÓN CIEGA!
           .range(pFrom, pFrom + pStep);
           
         if (errPart) throw errPart;
@@ -53,12 +55,15 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         }
       }
 
+      // FILTRO VISUAL ANTI-CLONES PARA ESTABILIZAR REACT Y EL BUSCADOR
       const mapUnicos = new Map();
       allParticipantes.forEach(p => {
-        mapUnicos.set(p.correo.toLowerCase(), p);
+        // Al usar toLowerCase() agrupamos correos repetidos por si hay clones en la base de datos
+        mapUnicos.set((p.correo || "").toLowerCase(), p);
       });
       const participantesDeduplicados = Array.from(mapUnicos.values());
 
+      // 2. DESCARGA BLINDADA DE CHECK-INS
       let allCheckins: any[] = [];
       let cFrom = 0;
       let cStep = 999;
@@ -70,6 +75,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
           .select("correo_usuario")
           .eq("dia_evento", todayStr)
           .eq("modulo", moduloSeleccionado)
+          .order("correo_usuario") // ¡Garantiza que lleguen todos los ingresos!
           .range(cFrom, cFrom + cStep);
           
         if (errCheck) throw errCheck;
@@ -84,7 +90,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
       }
 
       setParticipantes(participantesDeduplicados); 
-      setCheckinsHoy(new Set(allCheckins.map(c => c.correo_usuario.toLowerCase())));
+      setCheckinsHoy(new Set(allCheckins.map(c => (c.correo_usuario || "").toLowerCase())));
     } catch (error: any) {
       setMensaje({ tipo: "error", texto: error.message });
     } finally {
@@ -116,7 +122,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         if (error) throw error;
         
         const newSet = new Set(checkinsHoy);
-        newSet.delete(correo);
+        newSet.delete(correo.toLowerCase());
         setCheckinsHoy(newSet);
       } else {
         const { error } = await supabase
@@ -131,7 +137,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
         if (error) throw error;
         
         const newSet = new Set(checkinsHoy);
-        newSet.add(correo);
+        newSet.add(correo.toLowerCase());
         setCheckinsHoy(newSet);
       }
     } catch (error: any) {
@@ -200,7 +206,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
       }
 
       setParticipantes(prev => {
-        const filtrados = prev.filter(p => p.correo.toLowerCase() !== correoLimpio);
+        const filtrados = prev.filter(p => (p.correo || "").toLowerCase() !== correoLimpio);
         return [payload, ...filtrados];
       });
 
@@ -220,10 +226,12 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
     }
   };
 
-  const todosFiltrados = participantes.filter(p => 
-    terminoBusqueda === "" || 
-    `${p.nombre} ${p.apellido} ${p.correo} ${p.numero_documento}`.toLowerCase().includes(terminoBusqueda.toLowerCase())
-  );
+  const todosFiltrados = participantes.filter(p => {
+    if (terminoBusqueda === "") return true;
+    const busquedaMinuscula = terminoBusqueda.toLowerCase();
+    const str = `${p.nombre || ""} ${p.apellido || ""} ${p.correo || ""} ${p.numero_documento || ""}`.toLowerCase();
+    return str.includes(busquedaMinuscula);
+  });
 
   const totalPaginas = Math.ceil(todosFiltrados.length / ELEMENTOS_POR_PAGINA);
   const participantesPaginados = todosFiltrados.slice(
@@ -268,7 +276,7 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
             placeholder="Buscar por nombre, documento o correo..." 
             className="w-full pl-12 pr-12 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-[#311b42] outline-none text-gray-900 bg-white placeholder-gray-500" 
           />
-          {/* Botón de limpiar búsqueda */}
+          {/* BOTÓN "X" PARA LIMPIAR LA BÚSQUEDA RÁPIDAMENTE */}
           {terminoBusqueda && (
             <button
               onClick={() => setTerminoBusqueda("")}
@@ -297,12 +305,12 @@ export default function ManualCheckin({ moduloSeleccionado }: { moduloSelecciona
 
       {cargando ? (
         <div className="p-8 text-center text-gray-500 font-bold animate-pulse">
-          Cargando lista y calculando estadísticas...
+          Cargando lista completa y calculando estadísticas...
         </div>
       ) : (
         <div className="space-y-3">
           {participantesPaginados.map((p) => {
-            const isCheckedIn = checkinsHoy.has(p.correo.toLowerCase());
+            const isCheckedIn = checkinsHoy.has((p.correo || "").toLowerCase());
             return (
               <div 
                 key={p.correo} 
