@@ -12,22 +12,18 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   
-  // Filtros de Rango de Fechas
   const [fechaInicio, setFechaInicio] = useState("");
   const [fechaFin, setFechaFin] = useState("");
   
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Estados del Modal de Edición
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
 
-  // Estados para UI Premium (Toast y Modal Confirmación)
   const [toast, setToast] = useState<{ tipo: "exito" | "error"; mensaje: string } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ titulo: string; mensaje: string; onConfirm: () => void } | null>(null);
 
-  // Paginación
   const [paginaActual, setPaginaActual] = useState(1);
   const ELEMENTOS_POR_PAGINA = 100;
 
@@ -36,94 +32,107 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
     setTimeout(() => setToast(null), 4000);
   };
 
+  // EXTRACTOR BLINDADO GLOBAL (Anti colapso Supabase)
+  const fetchAllData = async (table: string, matchCondition?: Record<string, any>) => {
+    let result: any[] = [];
+    let from = 0;
+    while (true) {
+      let query = supabase.from(table).select('*').range(from, from + 999);
+      if (matchCondition) {
+        query = query.match(matchCondition);
+      }
+      const { data, error } = await query;
+      if (error) {
+        console.error(`Error extrayendo ${table}:`, error);
+        break;
+      }
+      if (!data || data.length === 0) break;
+      result = [...result, ...data];
+      if (data.length < 1000) break;
+      from += 1000;
+    }
+    return result;
+  };
+
   const fetchData = async () => {
     setLoading(true);
     setSelectedIds(new Set());
     setPaginaActual(1);
+    
     try {
-      let table = "";
-      let orderCol = "";
-      let isAscending = true;
+      let finalData: any[] = [];
 
       if (activeTab === "participantes" || activeTab === "moderadores") {
-        table = "base_datos_participantes";
-        orderCol = "nombre";
-        isAscending = true;
-      } else if (activeTab === "ponencias") {
-        table = "ponencias";
-        orderCol = "fecha_programada";
-        isAscending = false;
-      } else if (activeTab === "checkins") {
-        table = "check_ins";
-        orderCol = "id";
-        isAscending = false;
-      }
+        // DESCARGA GLOBAL (Trae a los 1190+)
+        const allParticipantesRaw = await fetchAllData("base_datos_participantes");
 
-      // CICLO ANTI-BLOQUEO (Bypass del límite de 1000 registros de Supabase)
-      let allData: any[] = [];
-      let from = 0;
-      let step = 999;
-      let fetchMore = true;
+        // MAPEO INTELIGENTE (LA CURA PARA CLONES Y CORREOS VACÍOS)
+        const mapUnicos = new Map();
+        
+        allParticipantesRaw.forEach(p => {
+          // FILTRO FLEXIBLE (Acepta si dice "Stands, Ponencias")
+          const modString = String(p.modulo || "").toLowerCase();
+          const targetModulo = moduloSeleccionado.toLowerCase();
+          
+          if (modString.includes(targetModulo)) {
+            const correo = String(p.correo || "").trim().toLowerCase();
+            const nombre = String(p.nombre || "").trim().toLowerCase();
+            const apellido = String(p.apellido || "").trim().toLowerCase();
+            const rolActual = String(p.rol || "Participante").trim();
 
-      while (fetchMore) {
-        let query = supabase.from(table).select("*").order(orderCol, { ascending: isAscending });
+            const claveUnica = `${correo}-${nombre}-${apellido}`;
+
+            if (!mapUnicos.has(claveUnica)) {
+              mapUnicos.set(claveUnica, p);
+            } else {
+              // Jerarquía de Moderador (Soluciona los clones)
+              if (rolActual.toLowerCase() === "moderador") {
+                mapUnicos.set(claveUnica, p);
+              }
+            }
+          }
+        });
+
+        const participantesDeduplicados = Array.from(mapUnicos.values());
         
         if (activeTab === "moderadores") {
-          query = query.eq("modulo", moduloSeleccionado).eq("rol", "Moderador");
-        } else if (activeTab !== "ponencias") {
-          query = query.eq("modulo", moduloSeleccionado);
-        }
-        
-        const { data: result, error } = await query.range(from, from + step);
-        if (error) throw error;
-        
-        if (result && result.length > 0) {
-          allData = [...allData, ...result];
-          from += step + 1;
-          // Si nos devolvió menos de 1000, significa que ya no hay más páginas
-          if (result.length <= step) {
-            fetchMore = false;
-          }
+          finalData = participantesDeduplicados.filter(p => String(p.rol || "").trim().toLowerCase() === "moderador");
         } else {
-          fetchMore = false;
+          finalData = participantesDeduplicados;
         }
-      }
-      
-      // Lógica específica para mapear nombres en los Check-ins (También usando ciclo anti-bloqueo)
-      if (activeTab === "checkins" && allData.length > 0) {
-        let allParts: any[] = [];
-        let pFrom = 0;
-        let pFetchMore = true;
-
-        while (pFetchMore) {
-          const { data: pResult, error: pError } = await supabase
-            .from("base_datos_participantes")
-            .select("correo, nombre, apellido")
-            .eq("modulo", moduloSeleccionado)
-            .range(pFrom, pFrom + 999);
-            
-          if (pError) throw pError;
-          if (pResult && pResult.length > 0) {
-            allParts = [...allParts, ...pResult];
-            pFrom += 1000;
-            if (pResult.length < 1000) pFetchMore = false;
-          } else {
-            pFetchMore = false;
-          }
-        }
-          
-        const mapNombres: Record<string, string> = {};
-        allParts.forEach(p => {
-          mapNombres[p.correo] = `${p.nombre || ""} ${p.apellido || ""}`.trim();
-        });
         
-        allData = allData.map(r => ({
-          ...r,
-          nombre_completo: mapNombres[r.correo_usuario] || "-"
-        }));
+        // Ordenamos alfabéticamente en JS
+        finalData.sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+        
+      } else if (activeTab === "ponencias") {
+        const pData = await fetchAllData("ponencias");
+        finalData = pData.sort((a, b) => {
+          const fA = a.fecha_programada ? new Date(a.fecha_programada).getTime() : 0;
+          const fB = b.fecha_programada ? new Date(b.fecha_programada).getTime() : 0;
+          return fB - fA;
+        });
+      } else if (activeTab === "checkins") {
+        const cData = await fetchAllData("check_ins", { modulo: moduloSeleccionado });
+        
+        if (cData.length > 0) {
+          const allParts = await fetchAllData("base_datos_participantes");
+          const mapNombres: Record<string, string> = {};
+          
+          allParts.forEach(p => {
+            const correo = String(p.correo || "").trim().toLowerCase();
+            mapNombres[correo] = `${p.nombre || ""} ${p.apellido || ""}`.trim();
+          });
+          
+          finalData = cData.map(r => ({
+            ...r,
+            nombre_completo: mapNombres[String(r.correo_usuario || "").toLowerCase()] || "-"
+          }));
+          
+          finalData.sort((a, b) => b.id - a.id); // Más recientes primero
+        }
       }
 
-      setData(allData);
+      setData(finalData);
       
     } catch (error) {
       console.error("Error cargando datos:", error);
@@ -162,7 +171,7 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
             numero_documento: editForm.numero_documento
           })
           .eq("correo", editForm.correo)
-          .eq("modulo", moduloSeleccionado);
+          .ilike("modulo", `%${moduloSeleccionado}%`); // Filtro flexible al guardar
           
         if (error) throw error;
       } else if (activeTab === "ponencias") {
@@ -415,8 +424,17 @@ export default function DatabaseManager({ moduloSeleccionado }: { moduloSeleccio
               placeholder="Filtrar por texto..." 
               value={searchTerm} 
               onChange={(e) => setSearchTerm(e.target.value)} 
-              className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 placeholder-gray-500" 
+              className="w-full pl-9 pr-10 py-2.5 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#c81474] text-gray-900 placeholder-gray-500" 
             />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm("")}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-[#c81474] transition-colors focus:outline-none"
+                title="Limpiar búsqueda"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
           {/* Filtros de Rango de Fechas para Check-ins */}
