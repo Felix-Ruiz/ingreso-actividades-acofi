@@ -13,41 +13,83 @@ export async function GET() {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { data: partData, error: errPart } = await supabase
-      .from('base_datos_participantes')
-      .select('*')
-      .eq('modulo', 'Ponencias');
+    // FUNCIÓN EXTRACTORA BLINDADA (Bypass del límite de 1000 de Supabase)
+    const fetchAllData = async (table: string, matchCondition?: Record<string, any>) => {
+      let result: any[] = [];
+      let from = 0;
+      while (true) {
+        let query = supabase.from(table).select('*').range(from, from + 999);
+        if (matchCondition) {
+          query = query.match(matchCondition);
+        }
+        const { data, error } = await query;
+        if (error) {
+          console.error(`Error extrayendo ${table}:`, error);
+          break;
+        }
+        if (!data || data.length === 0) break;
+        result = [...result, ...data];
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+      return result;
+    };
 
-    const { data: evalData, error: errEv } = await supabase
-      .from('evaluaciones')
-      .select('*');
+    // 1. DESCARGA GLOBAL (Sin límites)
+    // No filtramos por módulo aquí para aplicar la lógica flexible más abajo
+    const partDataRaw = await fetchAllData('base_datos_participantes');
+    const evalData = await fetchAllData('evaluaciones');
+    const ponenciasData = await fetchAllData('ponencias');
 
-    const { data: ponenciasData, error: errPon } = await supabase
-      .from('ponencias')
-      .select('*');
+    if (!partDataRaw || !evalData || !ponenciasData) throw new Error("Error extrayendo datos completos de Supabase");
 
-    if (errPart || errEv || errPon) throw new Error("Error extrayendo datos de Supabase");
+    // 2. MAPEO INTELIGENTE (LA CURA PARA CLONES Y CORREOS VACÍOS)
+    const mapUnicos = new Map();
+    
+    partDataRaw.forEach(p => {
+      // Filtro flexible para el módulo (incluye "Ponencias, Stands", etc.)
+      const modString = String(p.modulo || "").toLowerCase();
+      if (modString.includes("ponencias")) {
+        const correo = String(p.correo || "").trim().toLowerCase();
+        const nombre = String(p.nombre || "").trim().toLowerCase();
+        const apellido = String(p.apellido || "").trim().toLowerCase();
+        const rolActual = String(p.rol || "Participante").trim();
 
-    const usuariosMap: Record<string, any> = {};
-    partData?.forEach(p => {
-      usuariosMap[(p.correo || "").trim().toLowerCase()] = {
-        nombre: (p.nombre || "").trim(),
-        apellido: (p.apellido || "").trim(),
-        rol: (p.rol || "Participante").trim(),
-        numero_documento: (p.numero_documento || "").trim()
-      };
+        // Clave única combinada para proteger a la gente sin correo o con correo genérico
+        const claveUnica = `${correo}-${nombre}-${apellido}`;
+
+        if (!mapUnicos.has(claveUnica)) {
+          mapUnicos.set(claveUnica, p);
+        } else {
+          // Jerarquía de Moderador (Soluciona los clones)
+          if (rolActual.toLowerCase() === "moderador") {
+            mapUnicos.set(claveUnica, p);
+          }
+        }
+      }
+    });
+
+    const participantesDeduplicados = Array.from(mapUnicos.values());
+
+    // Diccionario rápido de búsqueda por correo para cruzar con evaluaciones
+    // (A los moderadores reales los encontramos rápido por su correo único)
+    const usuariosPorCorreo: Record<string, any> = {};
+    participantesDeduplicados.forEach(p => {
+      const correoLimpio = String(p.correo || "").trim().toLowerCase();
+      // Si ya hay un correo registrado (por clones genéricos), priorizamos al moderador
+      if (!usuariosPorCorreo[correoLimpio] || String(p.rol).toLowerCase() === "moderador") {
+         usuariosPorCorreo[correoLimpio] = p;
+      }
     });
 
     const resultados = (evalData || []).map(ev => {
       const u = (ev.correo_usuario || "").trim().toLowerCase();
-      const pData = usuariosMap[u] || { nombre: "Sin", apellido: "Registro", rol: "Participante", numero_documento: "N/A" };
+      const pData = usuariosPorCorreo[u] || { nombre: "Sin", apellido: "Registro", rol: "Participante", numero_documento: "N/A" };
       
-      let rolBD = pData.rol.toLowerCase();
+      let rolBD = String(pData.rol || "Participante").trim().toLowerCase();
       let tipoEvaluador = "Participante";
       
       if (rolBD === "moderador") tipoEvaluador = "Moderador";
-      else if (rolBD === "participante") tipoEvaluador = "Participante";
-      else tipoEvaluador = pData.rol || "Participante";
 
       return {
         email: u,
@@ -200,7 +242,6 @@ export async function GET() {
         row.getCell(13).value = "";
       }
 
-      // Se removió el IF(B="Sin Moderador", "") para forzar los cálculos en todas las filas
       row.getCell(11).value = { formula: `IFERROR(AVERAGE($J$2:$J$${maxRows}), 0)` }; 
       row.getCell(12).value = { formula: `K${f}*2` }; 
       row.getCell(14).value = { formula: `IFERROR(AVERAGE($M$2:$M$${maxRows}), 0)` }; 
