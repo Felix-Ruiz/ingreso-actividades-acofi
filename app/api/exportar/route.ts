@@ -13,6 +13,15 @@ export async function GET() {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Helpers Matemáticos (El cerebro)
+    const average = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+    const stdevp = (arr: number[]) => {
+      if (arr.length < 2) return 0;
+      const avg = average(arr);
+      const variance = arr.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / arr.length;
+      return Math.sqrt(variance);
+    };
+
     // FUNCIÓN EXTRACTORA BLINDADA (Bypass del límite de 1000 de Supabase)
     const fetchAllData = async (table: string, matchCondition?: Record<string, any>) => {
       let result: any[] = [];
@@ -36,7 +45,6 @@ export async function GET() {
     };
 
     // 1. DESCARGA GLOBAL (Sin límites)
-    // No filtramos por módulo aquí para aplicar la lógica flexible más abajo
     const partDataRaw = await fetchAllData('base_datos_participantes');
     const evalData = await fetchAllData('evaluaciones');
     const ponenciasData = await fetchAllData('ponencias');
@@ -47,7 +55,6 @@ export async function GET() {
     const mapUnicos = new Map();
     
     partDataRaw.forEach(p => {
-      // Filtro flexible para el módulo (incluye "Ponencias, Stands", etc.)
       const modString = String(p.modulo || "").toLowerCase();
       if (modString.includes("ponencias")) {
         const correo = String(p.correo || "").trim().toLowerCase();
@@ -55,7 +62,6 @@ export async function GET() {
         const apellido = String(p.apellido || "").trim().toLowerCase();
         const rolActual = String(p.rol || "Participante").trim();
 
-        // Clave única combinada para proteger a la gente sin correo o con correo genérico
         const claveUnica = `${correo}-${nombre}-${apellido}`;
 
         if (!mapUnicos.has(claveUnica)) {
@@ -71,12 +77,9 @@ export async function GET() {
 
     const participantesDeduplicados = Array.from(mapUnicos.values());
 
-    // Diccionario rápido de búsqueda por correo para cruzar con evaluaciones
-    // (A los moderadores reales los encontramos rápido por su correo único)
     const usuariosPorCorreo: Record<string, any> = {};
     participantesDeduplicados.forEach(p => {
       const correoLimpio = String(p.correo || "").trim().toLowerCase();
-      // Si ya hay un correo registrado (por clones genéricos), priorizamos al moderador
       if (!usuariosPorCorreo[correoLimpio] || String(p.rol).toLowerCase() === "moderador") {
          usuariosPorCorreo[correoLimpio] = p;
       }
@@ -125,6 +128,10 @@ export async function GET() {
       headerRow.font = { color: { argb: 'FFFFFFFF' }, bold: true };
       sh.views = [{ state: 'frozen', ySplit: 1 }];
 
+      const statScores = datos.map(d => d.nota);
+      const calculatedStdev = stdevp(statScores);
+      const calculatedAvg = average(statScores);
+
       datos.forEach(r => {
         sh.addRow([r.email, r.ponencia, r.nota, r.fecha, r.nombre, r.apellido, r.rol]);
       });
@@ -132,11 +139,12 @@ export async function GET() {
       const lastR = datos.length + 1;
       sh.getCell('H1').value = "Desviación Estándar";
       sh.getCell('H1').font = { bold: true };
-      sh.getCell('H2').value = { formula: `IF(COUNT(C2:C${lastR})>1, STDEV.P(C2:C${lastR}), 0)` };
+      // Inyectamos el resultado pre-calculado en JS para que Excel no tenga que pensar
+      sh.getCell('H2').value = { formula: `IF(COUNT(C2:C${lastR})>1, STDEV.P(C2:C${lastR}), 0)`, result: calculatedStdev };
 
       sh.getCell('I1').value = "Promedio";
       sh.getCell('I1').font = { bold: true };
-      sh.getCell('I2').value = { formula: `IF(COUNT(C2:C${lastR})>0, AVERAGE(C2:C${lastR}), 0)` };
+      sh.getCell('I2').value = { formula: `IF(COUNT(C2:C${lastR})>0, AVERAGE(C2:C${lastR}), 0)`, result: calculatedAvg };
 
       sh.getCell('H2').numFmt = '0.00';
       sh.getCell('I2').numFmt = '0.00';
@@ -159,6 +167,66 @@ export async function GET() {
     const shC = workbook.addWorksheet('Consolidado');
     const ponenciasDB = ponenciasData || [];
     const uniqueParticipants = Array.from(new Set(parts.map(p => p.nombreCompleto)));
+
+    // PRE-CÁLCULO MATEMÁTICO EN EL BACKEND (Espejo de LiveConsolidado.tsx)
+    const modScoresGral = mods.map(m => m.nota);
+    const desvGralMod = stdevp(modScoresGral);
+    const promGralMod = average(modScoresGral);
+
+    const rowsTemp = ponenciasDB.map(ponDB => {
+      const ponId = (ponDB.codigo_ponencia || "").trim();
+      const ponCompare = ponId.toLowerCase();
+
+      const modVote = mods.find(m => m.ponencia.toLowerCase() === ponCompare);
+      const pVotes = parts.filter(p => p.ponencia.toLowerCase() === ponCompare);
+
+      let C = modVote ? modVote.nota : 0;
+      let modIndScores = modVote ? mods.filter(m => m.nombreCompleto === modVote.nombreCompleto).map(v => v.nota) : [];
+
+      let D = desvGralMod;
+      let E = stdevp(modIndScores);
+      let F = promGralMod;
+      let G = average(modIndScores);
+      let H = 0.8;
+
+      let I = 0;
+      if (modVote) {
+        let calc = E === 0 ? F : F + H * (D / E) * (C - G); 
+        I = Math.max(0, Math.min(1000, calc));
+      }
+
+      let J = pVotes.length;
+      let M = J > 0 ? average(pVotes.map(v => v.nota)) : 0;
+
+      return { 
+        ponId, hasMod: !!modVote, modName: modVote?.nombreCompleto || "Sin Moderador",
+        C, D, E, F, G, H, I, J, M, pVotes 
+      };
+    });
+
+    const validJ = rowsTemp.filter(r => r.J > 0).map(r => r.J);
+    const avgJ = validJ.length > 0 ? average(validJ) : 0;
+    
+    const validM = rowsTemp.filter(r => r.J > 0).map(r => r.M);
+    const avgM_excel = validM.length > 0 ? average(validM) : 0;
+
+    const consolidadoRows = rowsTemp.map(r => {
+      let K = avgJ;
+      let L = K * 2;
+      let N = avgM_excel;
+      let O = 2.0;
+      let P = 30.0;
+
+      let Q = 0;
+      let den = r.J + L;
+      if (den === 0) den = 1;
+      Q = N + Math.pow(r.J / den, O) * (r.M - N) - P * (L / den);
+
+      let R = (Q * 0.4) + (0.6 * r.I);
+
+      return { ...r, K, L, N, O, P, Q, R };
+    });
+    // FIN DEL PRE-CÁLCULO
 
     const headersC = [
       "Número Ponencia", "Moderador", "Nota Mod", "Desv. Gral Mod",
@@ -201,30 +269,28 @@ export async function GET() {
       return letter;
     };
 
-    ponenciasDB.forEach((ponDB, idx) => {
-      const ponId = (ponDB.codigo_ponencia || "").trim();
+    consolidadoRows.forEach((r, idx) => {
       const f = idx + 2;
       const rRow = new Array(headersC.length).fill(null);
-      rRow[0] = ponId; 
+      rRow[0] = r.ponId; 
 
-      const modVote = mods.find(m => m.ponencia.toLowerCase() === ponId.toLowerCase());
-      if (modVote) {
-        const nomEval = modVote.nombreCompleto.substring(0, 31);
+      if (r.hasMod) {
+        const nomEval = r.modName.substring(0, 31);
         rRow[1] = nomEval; 
-        rRow[2] = modVote.nota; 
-        rRow[3] = { formula: `IFERROR(Moderadores!$H$2, 0)` }; 
-        rRow[4] = { formula: `IFERROR('${nomEval}'!$H$2, 0)` }; 
-        rRow[5] = { formula: `IFERROR(Moderadores!$I$2, 0)` }; 
-        rRow[6] = { formula: `IFERROR('${nomEval}'!$I$2, 0)` }; 
-        rRow[7] = 0.8; 
-        rRow[8] = { formula: `IFERROR(MAX(0, MIN(1000, F${f}+H${f}*(D${f}/IF(E${f}=0,1,E${f}))*(C${f}-G${f}))), 0)` }; 
+        rRow[2] = r.C; 
+        // Inyectamos la formula Y el resultado matemático puro
+        rRow[3] = { formula: `IFERROR(Moderadores!$H$2, 0)`, result: r.D }; 
+        rRow[4] = { formula: `IFERROR('${nomEval}'!$H$2, 0)`, result: r.E }; 
+        rRow[5] = { formula: `IFERROR(Moderadores!$I$2, 0)`, result: r.F }; 
+        rRow[6] = { formula: `IFERROR('${nomEval}'!$I$2, 0)`, result: r.G }; 
+        rRow[7] = r.H; 
+        rRow[8] = { formula: `IFERROR(MAX(0, MIN(1000, F${f}+H${f}*(D${f}/IF(E${f}=0,1,E${f}))*(C${f}-G${f}))), 0)`, result: r.I }; 
       } else {
         rRow[1] = "Sin Moderador";
         rRow[2] = 0; rRow[3] = 0; rRow[4] = 0; rRow[5] = 0; rRow[6] = 0; rRow[7] = 0.8; rRow[8] = 0;
       }
 
-      const pVotes = parts.filter(p => p.ponencia.toLowerCase() === ponId.toLowerCase());
-      pVotes.forEach(pv => {
+      r.pVotes.forEach(pv => {
         const cIdx = 18 + uniqueParticipants.indexOf(pv.nombreCompleto);
         rRow[cIdx] = pv.nota;
       });
@@ -232,23 +298,23 @@ export async function GET() {
       const row = shC.addRow(rRow);
 
       const lastColLetter = uniqueParticipants.length > 0 ? colNumLetra(18 + uniqueParticipants.length) : 'S';
-      const maxRows = ponenciasDB.length + 1;
+      const maxRows = consolidadoRows.length + 1;
       
       if (uniqueParticipants.length > 0) {
-        row.getCell(10).value = { formula: `COUNT(S${f}:${lastColLetter}${f})` }; 
-        row.getCell(13).value = { formula: `IF(J${f}>0, AVERAGE(S${f}:${lastColLetter}${f}), "")` }; 
+        row.getCell(10).value = { formula: `COUNT(S${f}:${lastColLetter}${f})`, result: r.J }; 
+        row.getCell(13).value = { formula: `IF(J${f}>0, AVERAGE(S${f}:${lastColLetter}${f}), "")`, result: r.M }; 
       } else {
         row.getCell(10).value = 0;
         row.getCell(13).value = "";
       }
 
-      row.getCell(11).value = { formula: `IFERROR(AVERAGE($J$2:$J$${maxRows}), 0)` }; 
-      row.getCell(12).value = { formula: `K${f}*2` }; 
-      row.getCell(14).value = { formula: `IFERROR(AVERAGE($M$2:$M$${maxRows}), 0)` }; 
-      row.getCell(15).value = 2.0; 
-      row.getCell(16).value = 30.0; 
-      row.getCell(17).value = { formula: `IFERROR(N${f}+(J${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f})))^O${f}*(M${f}-N${f})-P${f}*(L${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f}))), 0)` }; 
-      row.getCell(18).value = { formula: `IFERROR((Q${f}*0.4)+(0.6*I${f}), 0)` }; 
+      row.getCell(11).value = { formula: `IFERROR(AVERAGE($J$2:$J$${maxRows}), 0)`, result: r.K }; 
+      row.getCell(12).value = { formula: `K${f}*2`, result: r.L }; 
+      row.getCell(14).value = { formula: `IFERROR(AVERAGE($M$2:$M$${maxRows}), 0)`, result: r.N }; 
+      row.getCell(15).value = r.O; 
+      row.getCell(16).value = r.P; 
+      row.getCell(17).value = { formula: `IFERROR(N${f}+(J${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f})))^O${f}*(M${f}-N${f})-P${f}*(L${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f}))), 0)`, result: r.Q }; 
+      row.getCell(18).value = { formula: `IFERROR((Q${f}*0.4)+(0.6*I${f}), 0)`, result: r.R }; 
 
       row.getCell(3).numFmt = '0.00';
       row.getCell(4).numFmt = '0.00';
