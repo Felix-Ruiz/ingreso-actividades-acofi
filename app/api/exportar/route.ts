@@ -67,7 +67,7 @@ export async function GET() {
         if (!mapUnicos.has(claveUnica)) {
           mapUnicos.set(claveUnica, p);
         } else {
-          // Jerarquía de Moderador (Soluciona los clones)
+          // Jerarquía de Moderador
           if (rolActual.toLowerCase() === "moderador") {
             mapUnicos.set(claveUnica, p);
           }
@@ -136,15 +136,14 @@ export async function GET() {
         sh.addRow([r.email, r.ponencia, r.nota, r.fecha, r.nombre, r.apellido, r.rol]);
       });
 
-      const lastR = datos.length + 1;
+      // VALORES PLANOS PARA EVITAR ERRORES DE EXCEL
       sh.getCell('H1').value = "Desviación Estándar";
       sh.getCell('H1').font = { bold: true };
-      // Inyectamos el resultado pre-calculado en JS para que Excel no tenga que pensar
-      sh.getCell('H2').value = { formula: `IF(COUNT(C2:C${lastR})>1, STDEV.P(C2:C${lastR}), 0)`, result: calculatedStdev };
+      sh.getCell('H2').value = calculatedStdev; // Número directo, sin fórmulas
 
       sh.getCell('I1').value = "Promedio";
       sh.getCell('I1').font = { bold: true };
-      sh.getCell('I2').value = { formula: `IF(COUNT(C2:C${lastR})>0, AVERAGE(C2:C${lastR}), 0)`, result: calculatedAvg };
+      sh.getCell('I2').value = calculatedAvg; // Número directo, sin fórmulas
 
       sh.getCell('H2').numFmt = '0.00';
       sh.getCell('I2').numFmt = '0.00';
@@ -168,7 +167,7 @@ export async function GET() {
     const ponenciasDB = ponenciasData || [];
     const uniqueParticipants = Array.from(new Set(parts.map(p => p.nombreCompleto)));
 
-    // PRE-CÁLCULO MATEMÁTICO EN EL BACKEND (Espejo de LiveConsolidado.tsx)
+    // PRE-CÁLCULO MATEMÁTICO EN EL BACKEND
     const modScoresGral = mods.map(m => m.nota);
     const desvGralMod = stdevp(modScoresGral);
     const promGralMod = average(modScoresGral);
@@ -226,7 +225,6 @@ export async function GET() {
 
       return { ...r, K, L, N, O, P, Q, R };
     });
-    // FIN DEL PRE-CÁLCULO
 
     const headersC = [
       "Número Ponencia", "Moderador", "Nota Mod", "Desv. Gral Mod",
@@ -259,32 +257,21 @@ export async function GET() {
     }
     shC.views = [{ state: 'frozen', ySplit: 1 }];
 
-    const colNumLetra = (num: number) => {
-      let temp = num, letter = '';
-      while (temp > 0) {
-        let mod = (temp - 1) % 26;
-        letter = String.fromCharCode(65 + mod) + letter;
-        temp = Math.floor((temp - mod) / 26);
-      }
-      return letter;
-    };
-
-    consolidadoRows.forEach((r, idx) => {
-      const f = idx + 2;
+    consolidadoRows.forEach((r) => {
       const rRow = new Array(headersC.length).fill(null);
       rRow[0] = r.ponId; 
 
+      // VALORES PLANOS (Inyección directa del número sin usar fórmulas para evitar errores de compatibilidad)
       if (r.hasMod) {
         const nomEval = r.modName.substring(0, 31);
         rRow[1] = nomEval; 
         rRow[2] = r.C; 
-        // Inyectamos la formula Y el resultado matemático puro
-        rRow[3] = { formula: `IFERROR(Moderadores!$H$2, 0)`, result: r.D }; 
-        rRow[4] = { formula: `IFERROR('${nomEval}'!$H$2, 0)`, result: r.E }; 
-        rRow[5] = { formula: `IFERROR(Moderadores!$I$2, 0)`, result: r.F }; 
-        rRow[6] = { formula: `IFERROR('${nomEval}'!$I$2, 0)`, result: r.G }; 
+        rRow[3] = r.D; 
+        rRow[4] = r.E; 
+        rRow[5] = r.F; 
+        rRow[6] = r.G; 
         rRow[7] = r.H; 
-        rRow[8] = { formula: `IFERROR(MAX(0, MIN(1000, F${f}+H${f}*(D${f}/IF(E${f}=0,1,E${f}))*(C${f}-G${f}))), 0)`, result: r.I }; 
+        rRow[8] = r.I; 
       } else {
         rRow[1] = "Sin Moderador";
         rRow[2] = 0; rRow[3] = 0; rRow[4] = 0; rRow[5] = 0; rRow[6] = 0; rRow[7] = 0.8; rRow[8] = 0;
@@ -297,25 +284,18 @@ export async function GET() {
 
       const row = shC.addRow(rRow);
 
-      const lastColLetter = uniqueParticipants.length > 0 ? colNumLetra(18 + uniqueParticipants.length) : 'S';
-      const maxRows = consolidadoRows.length + 1;
-      
-      if (uniqueParticipants.length > 0) {
-        row.getCell(10).value = { formula: `COUNT(S${f}:${lastColLetter}${f})`, result: r.J }; 
-        row.getCell(13).value = { formula: `IF(J${f}>0, AVERAGE(S${f}:${lastColLetter}${f}), "")`, result: r.M }; 
-      } else {
-        row.getCell(10).value = 0;
-        row.getCell(13).value = "";
-      }
-
-      row.getCell(11).value = { formula: `IFERROR(AVERAGE($J$2:$J$${maxRows}), 0)`, result: r.K }; 
-      row.getCell(12).value = { formula: `K${f}*2`, result: r.L }; 
-      row.getCell(14).value = { formula: `IFERROR(AVERAGE($M$2:$M$${maxRows}), 0)`, result: r.N }; 
+      // INYECCIÓN DE VALORES PLANOS RESTANTES
+      row.getCell(10).value = r.J; 
+      row.getCell(11).value = r.K; 
+      row.getCell(12).value = r.L; 
+      row.getCell(13).value = r.J > 0 ? r.M : ""; 
+      row.getCell(14).value = r.N; 
       row.getCell(15).value = r.O; 
       row.getCell(16).value = r.P; 
-      row.getCell(17).value = { formula: `IFERROR(N${f}+(J${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f})))^O${f}*(M${f}-N${f})-P${f}*(L${f}/IF((J${f}+L${f})=0,1,(J${f}+L${f}))), 0)`, result: r.Q }; 
-      row.getCell(18).value = { formula: `IFERROR((Q${f}*0.4)+(0.6*I${f}), 0)`, result: r.R }; 
+      row.getCell(17).value = r.Q; 
+      row.getCell(18).value = r.R; 
 
+      // Formato a dos decimales
       row.getCell(3).numFmt = '0.00';
       row.getCell(4).numFmt = '0.00';
       row.getCell(5).numFmt = '0.00';
